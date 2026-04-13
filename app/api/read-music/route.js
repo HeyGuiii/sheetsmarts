@@ -4,36 +4,21 @@ export const maxDuration = 60;
 
 const client = new Anthropic();
 
-const PROMPT = `You are reading sheet music from a photo. Your goal: produce a perfectly accurate JSON representation of every note so a piano app can play it back and it sounds exactly right.
+const PROMPT = `You are identifying a piece of piano sheet music from a photo. Your PRIMARY strategy is to identify the piece and reconstruct it from your knowledge. Reading individual note positions from photos is unreliable, so use every clue available to IDENTIFY the piece first.
 
-IGNORE everything that is not musical notation:
-- Colored stickers, dots, or highlights (practice aids)
-- Finger numbers (1-5 near notes)
-- Text instructions, titles, dynamics (p, f, mf), pedal marks
-- Pencil marks or annotations
+STRATEGY — in this order:
+1. READ THE TEXT: title, composer, lyrics, book name, page headers, any visible text
+2. IDENTIFY THE PIECE: Use the title, lyrics, book, and any context provided to recall the exact notes from your training data
+3. VERIFY against the photo: Check that the general shape (notes going up/down, rhythm patterns) matches what you see
+4. ONLY if you cannot identify the piece, attempt to read notes directly from the staff
 
-HOW TO READ — go slowly, one note at a time:
+For beginner piano books (like Piano Adventures, Alfred's, Bastien, Thompson, Faber & Faber), you likely know these pieces. Trust your knowledge of the piece over trying to read pixel-level note positions.
 
-1. IDENTIFY THE CLEF AND KEY SIGNATURE
-   - Treble clef (𝄞): lines from bottom = E4, G4, B4, D5, F5. Spaces = F4, A4, C5, E5.
-   - Bass clef (𝄢): lines from bottom = G2, B2, D3, F3, A3. Spaces = A2, C3, E3, G3.
-   - Count sharps/flats in the key signature. Apply them to ALL notes of that letter.
-
-2. GO MEASURE BY MEASURE, LEFT TO RIGHT
-   For each note or chord:
-   - Look at WHERE the note head sits. Is it ON a line or IN a space?
-   - Count from a known reference line. The middle line of treble staff = B4. The middle line of bass staff = D3.
-   - If the note head is BELOW the staff, count down using ledger lines. The first ledger line below treble staff = C4 (middle C).
-   - For chords: read every stacked note head from bottom to top.
-   - For rests: identify the rest symbol type (whole, half, quarter, eighth).
-
-3. DETERMINE DURATION by the note's appearance:
-   - Whole note: open oval, no stem (4 beats)
-   - Half note: open oval WITH stem (2 beats)
-   - Quarter note: filled (black) oval WITH stem (1 beat)
-   - Eighth note: filled oval with stem and ONE flag or beam (0.5 beats)
-   - Dotted: adds 50% more duration
-   - Tied notes: merge durations
+IMPORTANT for Piano Adventures specifically:
+- Level 1 pieces use a limited range: typically C3-C5
+- Left hand often plays simple patterns: whole notes, half notes, or repeated quarter notes
+- Right hand carries the melody with quarter and half notes
+- Most pieces are in C major or G major
 
 OUTPUT FORMAT — return ONLY this JSON (no markdown, no explanation, no code fences):
 
@@ -51,6 +36,7 @@ OUTPUT FORMAT — return ONLY this JSON (no markdown, no explanation, no code fe
 - duration: "1n"=whole, "2n"=half, "4n"=quarter, "8n"=eighth, "16n"=sixteenth. Dotted: add "."
 - hand: "right" for treble clef, "left" for bass clef
 - measure: starting at 1. beat: starting at 1.
+- Staccato notes: use the normal duration (the app handles playback).
 - If key/time not visible, assume C major, 4/4, 100 BPM.`;
 
 export async function POST(request) {
@@ -71,7 +57,7 @@ export async function POST(request) {
     if (songTitle) contextParts.push(`The song title is "${songTitle}".`);
     if (notes) contextParts.push(`Additional info: ${notes}`);
     const contextHint = contextParts.length > 0
-      ? `\n\nCONTEXT FROM THE USER:\n${contextParts.join(" ")}\nIf you recognize this piece, use your knowledge of it to verify your reading is correct. Cross-reference the notes you extract against what you know about this piece.`
+      ? `\n\nCONTEXT FROM THE USER:\n${contextParts.join(" ")}\nIMPORTANT: If you recognize this piece from this book, return the EXACT notes from your knowledge of the piece. Do NOT try to read notes from the image — your knowledge of the piece is far more accurate than reading pixel positions. Use the image only to confirm the general structure matches.`
       : "";
 
     // Use extended thinking so Claude can reason through each note carefully.

@@ -44,11 +44,15 @@ export async function POST(request) {
     let query = `Find this piano piece and return all the notes:\n\nSong: "${songTitle}"`;
     if (book) query += `\nBook: "${book}"`;
     if (notes) query += `\nAdditional info: ${notes}`;
-    query += `\n\nIf you know this exact arrangement (especially from this specific book/level), return the full transcription. If you're not confident you know the exact notes, return { "found": false }.`;
+    query += `\n\nThis is from a widely-used piano lesson book. Think carefully about what you know about this piece — the melody, the key, the rhythm, and both hands. Piano Adventures by Faber & Faber is one of the most popular piano methods in the world, so you've likely seen these pieces in your training data. Return the full transcription with both hands. If you truly have no idea, return { "found": false }.`;
 
     const stream = await client.messages.stream({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-20250514",
       max_tokens: 8000,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 8000,
+      },
       messages: [
         { role: "user", content: query },
       ],
