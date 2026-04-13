@@ -4,7 +4,9 @@ export const maxDuration = 60;
 
 const client = new Anthropic();
 
-const PROMPT = `You are a sheet music reader for a piano practice app. Analyze this photo of sheet music and extract ALL notes from BOTH treble and bass clefs.
+const PROMPT = `You are an expert sheet music reader for a piano practice app. Your job is to accurately extract every note from the photo so the app can play back the piece correctly.
+
+IMPORTANT: Read very carefully. Take your time to identify each note precisely. Getting notes wrong will make the playback sound wrong.
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation, no code fences):
 
@@ -18,17 +20,34 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   ]
 }
 
-Rules:
-- pitch: ALWAYS an array of note names, even for single notes. Use scientific notation. Middle C = "C4". Use sharps as "#" and flats as "b". For rests, use ["REST"].
-- CHORDS: When multiple notes are stacked vertically (played at the same time), put all of them in the pitch array. Example: a C major chord = ["C4", "E4", "G4"].
-- BOTH CLEFS: Extract notes from the treble clef (right hand, hand="right") AND the bass clef (left hand, hand="left"). If notes in both clefs occur on the same beat, create separate entries for each hand.
-- duration: Use Tone.js notation: "1n" = whole, "2n" = half, "4n" = quarter, "8n" = eighth, "16n" = sixteenth. Add "." for dotted notes (e.g. "4n.").
-- Tied notes: Merge into a single note with combined duration.
-- If the time signature is not visible, assume 4/4.
-- If the key signature is not visible, assume C major.
-- If tempo marking is not visible, assume 100 BPM.
-- Number measures starting at 1. Number beats starting at 1.
-- Bass clef notes are typically in the range C2-C4. Treble clef notes are typically C4-C6.`;
+STEP 1 — READ THE KEY SIGNATURE FIRST:
+- Count the sharps or flats at the beginning of the staff next to the clef.
+- Sharps order: F# C# G# D# A# E# B#
+- Flats order: Bb Eb Ab Db Gb Cb Fb
+- The key signature applies to ALL notes of that letter name in every octave unless cancelled by a natural sign.
+- Example: Key of G (1 sharp) means every F is played as F#, so write "F#4" not "F4".
+- Example: Key of F (1 flat) means every B is played as Bb, so write "Bb4" not "B4".
+
+STEP 2 — READ EACH NOTE:
+- pitch: ALWAYS an array. Single notes: ["E4"]. Chords (stacked notes): ["C4", "E4", "G4"]. Rests: ["REST"].
+- Use scientific pitch notation. Middle C (on the ledger line below treble staff) = "C4".
+- Treble clef lines bottom to top: E4, G4, B4, D5, F5. Spaces: F4, A4, C5, E5.
+- Bass clef lines bottom to top: G2, B2, D3, F3, A3. Spaces: A2, C3, E3, G3.
+- Apply accidentals: # (sharp), b (flat), natural (cancels key signature). An accidental lasts for the rest of that measure.
+- BOTH CLEFS: Read treble (hand="right") AND bass (hand="left"). Notes on the same beat get separate entries.
+
+STEP 3 — DURATION:
+- "1n" = whole (4 beats), "2n" = half (2 beats), "4n" = quarter (1 beat), "8n" = eighth (half beat), "16n" = sixteenth.
+- Dotted notes: add ".": "2n." = 3 beats, "4n." = 1.5 beats.
+- Tied notes: merge into combined duration. Two tied quarter notes = "2n".
+
+STEP 4 — STRUCTURE:
+- Number measures starting at 1, beats starting at 1.
+- If time signature is not visible, assume 4/4.
+- If key signature is not visible, assume C major (no sharps or flats).
+- If tempo is not marked, assume 100 BPM.
+- Ignore dynamics (p, f, mf), fingering numbers, pedal marks, and expression text.
+- Do NOT skip pickup measures (anacrusis) — include them as measure 1.`;
 
 export async function POST(request) {
   try {
@@ -47,7 +66,7 @@ export async function POST(request) {
     // Streaming keeps the connection alive as long as data is flowing.
     const stream = await client.messages.stream({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [
         {
           role: "user",

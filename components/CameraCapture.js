@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 
 // Resize image to max dimension and compress as JPEG
-function resizeImage(base64, maxDim = 800) {
+function resizeImage(base64, maxDim = 1400) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
