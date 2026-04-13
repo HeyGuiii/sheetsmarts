@@ -124,7 +124,7 @@ export default function CameraCapture({ onCapture }) {
         </button>
         <label className="text-blue-500 underline cursor-pointer text-sm">
           Or upload a photo
-          <input type="file" accept="image/*" capture="environment"
+          <input type="file" accept="image/*"
             className="hidden" onChange={handleFileUpload} />
         </label>
       </div>
