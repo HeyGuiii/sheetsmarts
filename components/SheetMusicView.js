@@ -1,15 +1,11 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 
-// Note positions on staff (semitones from C, with staff position)
-// Staff position: 0 = middle line, positive = up, negative = down
-// Each step is half a staff space (line to space = 1 step)
 const TREBLE_POSITIONS = {
   "C4": -6, "D4": -5, "E4": -4, "F4": -3, "G4": -2,
   "A4": -1, "B4": 0, "C5": 1, "D5": 2, "E5": 3,
-  "F5": 4, "G5": 5, "A5": 6, "B5": 7, "C6": 8,
-  "D6": 9, "E6": 10,
+  "F5": 4, "G5": 5, "A5": 6, "B5": 7, "C6": 8, "D6": 9, "E6": 10,
 };
 
 const BASS_POSITIONS = {
@@ -19,7 +15,6 @@ const BASS_POSITIONS = {
 };
 
 function getNotePosition(noteName, hand) {
-  // Strip accidentals for position lookup
   const natural = noteName.replace(/#|b/g, "");
   const positions = hand === "left" ? BASS_POSITIONS : TREBLE_POSITIONS;
   return positions[natural] ?? 0;
@@ -41,8 +36,8 @@ function isRest(note) {
 }
 
 function getDurationWidth(duration) {
-  const map = { "16n": 25, "8n": 30, "8n.": 35, "4n": 40, "4n.": 50, "2n": 55, "2n.": 65, "1n": 75 };
-  return map[duration] || 40;
+  const map = { "16n": 30, "8n": 35, "8n.": 40, "4n": 50, "4n.": 60, "2n": 70, "2n.": 80, "1n": 90 };
+  return map[duration] || 50;
 }
 
 function isFilledNote(duration) {
@@ -63,6 +58,8 @@ function hasDot(duration) {
 
 export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
   const canvasRef = useRef(null);
+  const scrollRef = useRef(null);
+  const noteXPositions = useRef([]); // store x positions for scrolling
 
   useEffect(() => {
     if (!score || !score.notes || !canvasRef.current) return;
@@ -71,36 +68,35 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     const ctx = canvas.getContext("2d");
     const notes = score.notes;
 
-    // Separate into right hand and left hand
     const rightNotes = notes.filter((n) => n.hand !== "left");
     const leftNotes = notes.filter((n) => n.hand === "left");
     const hasBass = leftNotes.length > 0;
 
-    // Calculate canvas size
-    const STAFF_SPACING = 10; // pixels between staff lines
-    const LEFT_MARGIN = 50;
-    const RIGHT_MARGIN = 20;
-    const TOP_MARGIN = 40;
+    const STAFF_SPACING = 12;
+    const LEFT_MARGIN = 55;
+    const RIGHT_MARGIN = 30;
+    const TOP_MARGIN = 45;
+    const NOTE_GAP = 8;
 
-    // Calculate width needed
-    let totalWidth = LEFT_MARGIN;
-    const allNotes = rightNotes.length > 0 ? rightNotes : notes;
-    for (const note of allNotes) {
-      totalWidth += getDurationWidth(note.duration) + 5;
+    // Calculate total width
+    let totalWidth = LEFT_MARGIN + 35;
+    const mainNotes = rightNotes.length > 0 ? rightNotes : notes;
+    for (const note of mainNotes) {
+      totalWidth += getDurationWidth(note.duration) + NOTE_GAP;
     }
     totalWidth += RIGHT_MARGIN;
-    totalWidth = Math.max(totalWidth, 350);
+    totalWidth = Math.max(totalWidth, 400);
 
     const trebleStaffTop = TOP_MARGIN;
-    const trebleStaffHeight = STAFF_SPACING * 4;
-    const bassStaffTop = hasBass ? trebleStaffTop + trebleStaffHeight + 50 : 0;
-    const totalHeight = hasBass ? bassStaffTop + trebleStaffHeight + 60 : trebleStaffTop + trebleStaffHeight + 60;
+    const bassStaffTop = hasBass ? trebleStaffTop + STAFF_SPACING * 4 + 55 : 0;
+    const totalHeight = hasBass ? bassStaffTop + STAFF_SPACING * 4 + 65 : trebleStaffTop + STAFF_SPACING * 4 + 65;
 
-    canvas.width = totalWidth * 2; // 2x for retina
-    canvas.height = totalHeight * 2;
+    const scale = 2;
+    canvas.width = totalWidth * scale;
+    canvas.height = totalHeight * scale;
     canvas.style.width = totalWidth + "px";
     canvas.style.height = totalHeight + "px";
-    ctx.scale(2, 2);
+    ctx.scale(scale, scale);
 
     // Background
     ctx.fillStyle = "#FFFDF7";
@@ -114,7 +110,7 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       ctx.fillText(score.title, totalWidth / 2, 18);
     }
 
-    // Key/time info
+    // Info line
     ctx.fillStyle = "#888";
     ctx.font = "10px Arial";
     ctx.textAlign = "center";
@@ -123,10 +119,9 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       totalWidth / 2, 32
     );
 
-    // Draw staff function
     function drawStaff(y, clef) {
-      ctx.strokeStyle = "#333";
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = "#555";
+      ctx.lineWidth = 0.7;
       for (let i = 0; i < 5; i++) {
         ctx.beginPath();
         ctx.moveTo(LEFT_MARGIN - 10, y + i * STAFF_SPACING);
@@ -134,34 +129,42 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         ctx.stroke();
       }
 
-      // Clef
       ctx.fillStyle = "#333";
-      ctx.font = "bold 16px serif";
       ctx.textAlign = "left";
       if (clef === "treble") {
-        ctx.font = "36px serif";
-        ctx.fillText("𝄞", LEFT_MARGIN - 8, y + 32);
+        ctx.font = "40px serif";
+        ctx.fillText("𝄞", LEFT_MARGIN - 8, y + 36);
       } else {
-        ctx.font = "24px serif";
-        ctx.fillText("𝄢", LEFT_MARGIN - 6, y + 20);
+        ctx.font = "26px serif";
+        ctx.fillText("𝄢", LEFT_MARGIN - 6, y + 22);
       }
     }
 
-    // Draw a note on the staff
-    function drawNote(note, x, staffTop, hand) {
+    function drawNote(note, x, staffTop, hand, isActive) {
       const pitches = getPitches(note);
+      const activeColor = "#3B82F6";
+      const normalColor = "#1a1a2e";
+      const color = isActive ? activeColor : normalColor;
+
+      // Active highlight glow
+      if (isActive) {
+        const middleLineY = staffTop + 2 * STAFF_SPACING;
+        const firstPos = isRest(note) ? 0 : getNotePosition(pitches[0], hand);
+        const glowY = isRest(note) ? middleLineY : middleLineY - firstPos * (STAFF_SPACING / 2);
+        ctx.beginPath();
+        ctx.arc(x, glowY, 14, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
+        ctx.fill();
+      }
 
       if (isRest(note)) {
-        // Draw rest symbol
-        ctx.fillStyle = "#555";
-        ctx.font = "16px Arial";
+        ctx.fillStyle = isActive ? activeColor : "#555";
+        ctx.font = "18px Arial";
         ctx.textAlign = "center";
-        const restY = staffTop + STAFF_SPACING * 2;
-        ctx.fillText("𝄾", x, restY + 5);
+        ctx.fillText("𝄾", x, staffTop + STAFF_SPACING * 2 + 5);
         return;
       }
 
-      const isActive = false; // We'll handle highlighting separately
       const filled = isFilledNote(note.duration);
       const stem = hasStem(note.duration);
       const flag = hasFlag(note.duration);
@@ -169,156 +172,171 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
 
       for (const pitch of pitches) {
         const pos = getNotePosition(pitch, hand);
-        // Middle line of staff = index 2 (3rd line from top), position 0 maps differently
-        // For treble: B4 = middle line = position 0 → y = staffTop + 2 * STAFF_SPACING
-        // Each position step = half a STAFF_SPACING
         const middleLineY = staffTop + 2 * STAFF_SPACING;
         const noteY = middleLineY - pos * (STAFF_SPACING / 2);
 
         const accidental = hasAccidental(pitch);
 
         // Ledger lines
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 0.8;
         if (noteY < staffTop - 1) {
-          ctx.strokeStyle = "#333";
-          ctx.lineWidth = 0.8;
           for (let ly = staffTop - STAFF_SPACING; ly >= noteY - 1; ly -= STAFF_SPACING) {
             ctx.beginPath();
-            ctx.moveTo(x - 8, ly);
-            ctx.lineTo(x + 8, ly);
+            ctx.moveTo(x - 9, ly);
+            ctx.lineTo(x + 9, ly);
             ctx.stroke();
           }
         }
         if (noteY > staffTop + 4 * STAFF_SPACING + 1) {
-          ctx.strokeStyle = "#333";
-          ctx.lineWidth = 0.8;
           for (let ly = staffTop + 5 * STAFF_SPACING; ly <= noteY + 1; ly += STAFF_SPACING) {
             ctx.beginPath();
-            ctx.moveTo(x - 8, ly);
-            ctx.lineTo(x + 8, ly);
+            ctx.moveTo(x - 9, ly);
+            ctx.lineTo(x + 9, ly);
             ctx.stroke();
           }
         }
 
         // Accidental
         if (accidental) {
-          ctx.fillStyle = "#333";
-          ctx.font = "12px Arial";
+          ctx.fillStyle = color;
+          ctx.font = "13px Arial";
           ctx.textAlign = "right";
-          ctx.fillText(accidental === "#" ? "♯" : "♭", x - 7, noteY + 4);
+          ctx.fillText(accidental === "#" ? "♯" : "♭", x - 8, noteY + 4);
         }
 
         // Note head
         ctx.beginPath();
-        ctx.ellipse(x, noteY, 5, 4, -0.2, 0, Math.PI * 2);
-        ctx.fillStyle = filled ? "#1a1a2e" : "#FFFDF7";
+        ctx.ellipse(x, noteY, 6, 4.5, -0.2, 0, Math.PI * 2);
+        ctx.fillStyle = filled ? color : "#FFFDF7";
         ctx.fill();
-        ctx.strokeStyle = "#1a1a2e";
-        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.3;
         ctx.stroke();
 
         // Dot
         if (dot) {
           ctx.beginPath();
-          ctx.arc(x + 8, noteY, 1.5, 0, Math.PI * 2);
-          ctx.fillStyle = "#1a1a2e";
+          ctx.arc(x + 9, noteY, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = color;
           ctx.fill();
         }
       }
 
-      // Stem (draw once for chord, from highest/lowest note)
+      // Stem
       if (stem && pitches.length > 0) {
         const positions = pitches.map((p) => getNotePosition(p, hand));
         const middleLineY = staffTop + 2 * STAFF_SPACING;
-
-        // Stem goes up if note is below middle line, down if above
         const avgPos = positions.reduce((a, b) => a + b, 0) / positions.length;
         const stemUp = avgPos <= 0;
-
         const topPos = Math.max(...positions);
         const botPos = Math.min(...positions);
 
-        ctx.strokeStyle = "#1a1a2e";
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.1;
         ctx.beginPath();
 
         if (stemUp) {
           const bottomNoteY = middleLineY - botPos * (STAFF_SPACING / 2);
-          ctx.moveTo(x + 5, bottomNoteY);
-          ctx.lineTo(x + 5, bottomNoteY - 28);
-          // Flag
+          ctx.moveTo(x + 5.5, bottomNoteY);
+          ctx.lineTo(x + 5.5, bottomNoteY - 30);
           if (flag) {
-            ctx.moveTo(x + 5, bottomNoteY - 28);
-            ctx.quadraticCurveTo(x + 12, bottomNoteY - 20, x + 8, bottomNoteY - 14);
+            ctx.moveTo(x + 5.5, bottomNoteY - 30);
+            ctx.quadraticCurveTo(x + 13, bottomNoteY - 22, x + 9, bottomNoteY - 15);
           }
         } else {
           const topNoteY = middleLineY - topPos * (STAFF_SPACING / 2);
-          ctx.moveTo(x - 5, topNoteY);
-          ctx.lineTo(x - 5, topNoteY + 28);
+          ctx.moveTo(x - 5.5, topNoteY);
+          ctx.lineTo(x - 5.5, topNoteY + 30);
           if (flag) {
-            ctx.moveTo(x - 5, topNoteY + 28);
-            ctx.quadraticCurveTo(x - 12, topNoteY + 20, x - 8, topNoteY + 14);
+            ctx.moveTo(x - 5.5, topNoteY + 30);
+            ctx.quadraticCurveTo(x - 13, topNoteY + 22, x - 9, topNoteY + 15);
           }
         }
         ctx.stroke();
       }
     }
 
+    // Build a map from original note index to x position
+    const xPositions = {};
+
     // Draw treble staff and notes
     drawStaff(trebleStaffTop, "treble");
-    let x = LEFT_MARGIN + 30;
+    let x = LEFT_MARGIN + 35;
     let currentMeasure = 0;
     for (let i = 0; i < rightNotes.length; i++) {
       const note = rightNotes[i];
 
-      // Measure bar line
       if (note.measure > currentMeasure && currentMeasure > 0) {
-        ctx.strokeStyle = "#999";
-        ctx.lineWidth = 0.8;
+        ctx.strokeStyle = "#bbb";
+        ctx.lineWidth = 0.7;
         ctx.beginPath();
         ctx.moveTo(x - 5, trebleStaffTop);
         ctx.lineTo(x - 5, trebleStaffTop + 4 * STAFF_SPACING);
+        if (hasBass) {
+          ctx.moveTo(x - 5, bassStaffTop);
+          ctx.lineTo(x - 5, bassStaffTop + 4 * STAFF_SPACING);
+        }
         ctx.stroke();
-        x += 5;
+        x += 8;
       }
       currentMeasure = note.measure;
 
-      drawNote(note, x, trebleStaffTop, "right");
-      x += getDurationWidth(note.duration) + 5;
+      // Find original index in score.notes
+      const origIndex = notes.indexOf(note);
+      const isActive = origIndex === activeNoteIndex;
+      xPositions[origIndex] = x;
+
+      drawNote(note, x, trebleStaffTop, "right", isActive);
+      x += getDurationWidth(note.duration) + NOTE_GAP;
     }
 
     // Draw bass staff and notes
     if (hasBass) {
       drawStaff(bassStaffTop, "bass");
-      x = LEFT_MARGIN + 30;
+      x = LEFT_MARGIN + 35;
       currentMeasure = 0;
       for (let i = 0; i < leftNotes.length; i++) {
         const note = leftNotes[i];
         if (note.measure > currentMeasure && currentMeasure > 0) {
-          ctx.strokeStyle = "#999";
-          ctx.lineWidth = 0.8;
-          ctx.beginPath();
-          ctx.moveTo(x - 5, bassStaffTop);
-          ctx.lineTo(x - 5, bassStaffTop + 4 * STAFF_SPACING);
-          ctx.stroke();
-          x += 5;
+          x += 8;
         }
         currentMeasure = note.measure;
 
-        drawNote(note, x, bassStaffTop, "left");
-        x += getDurationWidth(note.duration) + 5;
+        const origIndex = notes.indexOf(note);
+        const isActive = origIndex === activeNoteIndex;
+        xPositions[origIndex] = x;
+
+        drawNote(note, x, bassStaffTop, "left", isActive);
+        x += getDurationWidth(note.duration) + NOTE_GAP;
       }
     }
 
+    noteXPositions.current = xPositions;
+
   }, [score, activeNoteIndex]);
+
+  // Auto-scroll to active note
+  useEffect(() => {
+    if (activeNoteIndex >= 0 && scrollRef.current && noteXPositions.current[activeNoteIndex]) {
+      const x = noteXPositions.current[activeNoteIndex];
+      const container = scrollRef.current;
+      const containerWidth = container.clientWidth;
+      // Scroll so the active note is roughly 1/3 from the left
+      const targetScroll = x - containerWidth / 3;
+      container.scrollTo({ left: targetScroll, behavior: "smooth" });
+    }
+  }, [activeNoteIndex]);
 
   if (!score || !score.notes) return null;
 
   return (
-    <div className="w-full overflow-x-auto">
-      <canvas
-        ref={canvasRef}
-        className="rounded-xl shadow-md"
-      />
+    <div
+      ref={scrollRef}
+      className="w-full overflow-x-auto rounded-xl shadow-md bg-[#FFFDF7]"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
+      <canvas ref={canvasRef} />
     </div>
   );
 }

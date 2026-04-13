@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import CameraCapture from "../../components/CameraCapture";
-import ScoreDisplay from "../../components/ScoreDisplay";
+// ScoreDisplay removed — SheetMusicView replaces it
 import PlaybackControls from "../../components/PlaybackControls";
 import SheetMusicView from "../../components/SheetMusicView";
 import { getSavedSongs, saveSong, deleteSong } from "../../lib/songLibrary";
@@ -173,8 +173,6 @@ export default function SnapPage() {
             <h3 className="text-sm font-bold text-gray-500 uppercase mb-2 text-center">What I Read</h3>
             <SheetMusicView score={score} activeNoteIndex={activeNote} />
           </div>
-
-          <ScoreDisplay score={score} activeNoteIndex={activeNote} />
 
           <PlaybackControls
             score={score}
