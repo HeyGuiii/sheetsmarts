@@ -170,8 +170,19 @@ export default function SnapPage() {
           )}
 
           <div className="w-full max-w-md">
-            <h3 className="text-sm font-bold text-gray-500 uppercase mb-2 text-center">What I Read</h3>
-            <SheetMusicView score={score} activeNoteIndex={activeNote} />
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-2 text-center">
+              What I Read <span className="text-xs font-normal text-gray-400">(tap a note to edit)</span>
+            </h3>
+            <SheetMusicView
+              score={score}
+              activeNoteIndex={activeNote}
+              editable={true}
+              onScoreChange={(newScore) => {
+                setScore(newScore);
+                // Update in library too
+                saveSong(newScore, null).then(() => setSavedSongs(getSavedSongs()));
+              }}
+            />
           </div>
 
           <PlaybackControls

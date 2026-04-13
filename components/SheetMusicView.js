@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 
 const TREBLE_POSITIONS = {
   "C4": -6, "D4": -5, "E4": -4, "F4": -3, "G4": -2,
@@ -13,6 +13,15 @@ const BASS_POSITIONS = {
   "A2": -1, "B2": 0, "C3": 1, "D3": 2, "E3": 3,
   "F3": 4, "G3": 5, "A3": 6, "B3": 7, "C4": 8,
 };
+
+const ALL_NOTES_TREBLE = ["C4","D4","E4","F4","G4","A4","B4","C5","D5","E5","F5","G5","A5","B5","C6"];
+const ALL_NOTES_BASS = ["C2","D2","E2","F2","G2","A2","B2","C3","D3","E3","F3","G3","A3","B3","C4"];
+const DURATIONS = [
+  { label: "𝅝", value: "1n" },
+  { label: "𝅗𝅥", value: "2n" },
+  { label: "♩", value: "4n" },
+  { label: "♪", value: "8n" },
+];
 
 function getNotePosition(noteName, hand) {
   const natural = noteName.replace(/#|b/g, "");
@@ -28,10 +37,69 @@ function hasStem(d) { return d !== "1n"; }
 function hasFlag(d) { return ["8n","8n."].includes(d); }
 function hasDot(d) { return d.includes("."); }
 
-export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
+export default function SheetMusicView({ score, activeNoteIndex = -1, editable = false, onScoreChange }) {
   const canvasRef = useRef(null);
   const scrollRef = useRef(null);
   const noteXPositions = useRef({});
+  const noteHitAreas = useRef([]); // [{x, y, w, h, noteIndex}]
+  const [selectedNote, setSelectedNote] = useState(null); // index into score.notes
+  const [editorPos, setEditorPos] = useState(null); // {x, y} for editor popup
+
+  // Handle tap on canvas to select a note
+  const handleCanvasTap = useCallback((e) => {
+    if (!editable) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const tapX = (e.clientX - rect.left) * scaleX / 2; // /2 for retina scale
+    const tapY = (e.clientY - rect.top) * scaleX / 2;
+
+    // Find closest note to tap
+    let closest = null;
+    let closestDist = 25; // max tap distance
+    for (const hit of noteHitAreas.current) {
+      const dx = tapX - hit.x;
+      const dy = tapY - hit.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closest = hit;
+      }
+    }
+
+    if (closest) {
+      setSelectedNote(closest.noteIndex);
+      // Position editor near the tapped note
+      const edX = closest.x * 2 / scaleX + rect.left - scrollRef.current.getBoundingClientRect().left + scrollRef.current.scrollLeft;
+      setEditorPos({ x: edX, noteIndex: closest.noteIndex });
+    } else {
+      setSelectedNote(null);
+      setEditorPos(null);
+    }
+  }, [editable]);
+
+  const handleNoteChange = useCallback((noteIndex, field, value) => {
+    if (!onScoreChange || !score) return;
+    const newNotes = [...score.notes];
+    const note = { ...newNotes[noteIndex] };
+
+    if (field === "pitch") {
+      note.pitch = [value];
+    } else if (field === "duration") {
+      note.duration = value;
+    } else if (field === "delete") {
+      newNotes.splice(noteIndex, 1);
+      onScoreChange({ ...score, notes: newNotes });
+      setSelectedNote(null);
+      setEditorPos(null);
+      return;
+    }
+
+    newNotes[noteIndex] = note;
+    onScoreChange({ ...score, notes: newNotes });
+  }, [score, onScoreChange]);
 
   useEffect(() => {
     if (!score || !score.notes || !canvasRef.current) return;
@@ -44,12 +112,12 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     const leftNotes = notes.filter((n) => n.hand === "left");
     const hasBass = leftNotes.length > 0;
 
-    const SP = 12; // staff line spacing
+    const SP = 12;
     const LEFT_MARGIN = 55;
     const RIGHT_MARGIN = 30;
     const TOP_MARGIN = 45;
     const GAP = 8;
-    const BRACE_GAP = hasBass ? 45 : 0; // gap between treble and bass staves
+    const BRACE_GAP = hasBass ? 45 : 0;
 
     const trebleTop = TOP_MARGIN;
     const trebleBot = trebleTop + SP * 4;
@@ -57,8 +125,7 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     const bassBot = hasBass ? bassTop + SP * 4 : 0;
     const systemHeight = hasBass ? bassBot + 50 : trebleBot + 50;
 
-    // Build a unified timeline grouped by measure+beat
-    // so treble and bass notes at the same position share the same x
+    // Build unified timeline
     const timeline = [];
     const visited = new Set();
     for (const note of notes) {
@@ -66,19 +133,16 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       if (!visited.has(key)) {
         visited.add(key);
         const atBeat = notes.filter((n) => n.measure === note.measure && n.beat === note.beat);
-        // Width = max duration width of notes at this beat
         const width = Math.max(...atBeat.map((n) => getDurationWidth(n.duration)));
         timeline.push({ key, notes: atBeat, width });
       }
     }
 
-    // Calculate total width
     let totalWidth = LEFT_MARGIN + 35;
-    let currentMeasure = 0;
+    let cm = 0;
     for (const slot of timeline) {
-      const m = slot.notes[0].measure;
-      if (m > currentMeasure && currentMeasure > 0) totalWidth += 12; // bar line space
-      currentMeasure = m;
+      if (slot.notes[0].measure > cm && cm > 0) totalWidth += 12;
+      cm = slot.notes[0].measure;
       totalWidth += slot.width + GAP;
     }
     totalWidth += RIGHT_MARGIN;
@@ -91,11 +155,9 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     canvas.style.height = systemHeight + "px";
     ctx.scale(scale, scale);
 
-    // Background
     ctx.fillStyle = "#FFFDF7";
     ctx.fillRect(0, 0, totalWidth, systemHeight);
 
-    // Title
     if (score.title) {
       ctx.fillStyle = "#1a1a2e";
       ctx.font = "bold 14px Arial";
@@ -111,7 +173,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       totalWidth / 2, 32
     );
 
-    // Draw staff lines
     function drawStaff(y, clef) {
       ctx.strokeStyle = "#555";
       ctx.lineWidth = 0.7;
@@ -132,37 +193,26 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       }
     }
 
-    drawStaff(trebleTop, "treble");
-    if (hasBass) {
-      drawStaff(bassTop, "bass");
-      // Brace connecting staves
-      ctx.strokeStyle = "#555";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(LEFT_MARGIN - 10, trebleTop);
-      ctx.lineTo(LEFT_MARGIN - 10, bassBot);
-      ctx.stroke();
-    }
-
-    // Draw note on staff
-    function drawNote(note, x, staffTop, hand, isActive) {
+    function drawNote(note, x, staffTop, hand, isActive, isSelected) {
       const pitches = getPitches(note);
       const activeColor = "#3B82F6";
+      const selectedColor = "#F97316";
       const normalColor = "#1a1a2e";
-      const color = isActive ? activeColor : normalColor;
+      const color = isSelected ? selectedColor : isActive ? activeColor : normalColor;
 
-      if (isActive) {
+      // Glow
+      if (isActive || isSelected) {
         const midY = staffTop + 2 * SP;
         const firstPos = isRest(note) ? 0 : getNotePosition(pitches[0], hand);
         const glowY = isRest(note) ? midY : midY - firstPos * (SP / 2);
         ctx.beginPath();
         ctx.arc(x, glowY, 14, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(59, 130, 246, 0.18)";
+        ctx.fillStyle = isSelected ? "rgba(249, 115, 22, 0.2)" : "rgba(59, 130, 246, 0.18)";
         ctx.fill();
       }
 
       if (isRest(note)) {
-        ctx.fillStyle = isActive ? activeColor : "#555";
+        ctx.fillStyle = isSelected ? selectedColor : isActive ? activeColor : "#555";
         ctx.font = "18px Arial";
         ctx.textAlign = "center";
         ctx.fillText("𝄾", x, staffTop + SP * 2 + 5);
@@ -180,7 +230,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         const noteY = midY - pos * (SP / 2);
         const acc = hasAccidental(pitch);
 
-        // Ledger lines
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.8;
         if (noteY < staffTop - 1) {
@@ -194,7 +243,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
           }
         }
 
-        // Accidental
         if (acc) {
           ctx.fillStyle = color;
           ctx.font = "13px Arial";
@@ -202,7 +250,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
           ctx.fillText(acc === "#" ? "♯" : "♭", x - 8, noteY + 4);
         }
 
-        // Note head
         ctx.beginPath();
         ctx.ellipse(x, noteY, 6, 4.5, -0.2, 0, Math.PI * 2);
         ctx.fillStyle = filled ? color : "#FFFDF7";
@@ -219,7 +266,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         }
       }
 
-      // Stem
       if (stem && pitches.length > 0) {
         const positions = pitches.map((p) => getNotePosition(p, hand));
         const midY = staffTop + 2 * SP;
@@ -244,16 +290,25 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       }
     }
 
-    // Draw all notes using unified timeline
+    drawStaff(trebleTop, "treble");
+    if (hasBass) {
+      drawStaff(bassTop, "bass");
+      ctx.strokeStyle = "#555";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(LEFT_MARGIN - 10, trebleTop);
+      ctx.lineTo(LEFT_MARGIN - 10, bassBot);
+      ctx.stroke();
+    }
+
     const xPositions = {};
+    const hitAreas = [];
     let x = LEFT_MARGIN + 35;
-    currentMeasure = 0;
+    cm = 0;
 
     for (const slot of timeline) {
       const m = slot.notes[0].measure;
-
-      // Bar line across both staves
-      if (m > currentMeasure && currentMeasure > 0) {
+      if (m > cm && cm > 0) {
         ctx.strokeStyle = "#bbb";
         ctx.lineWidth = 0.7;
         ctx.beginPath();
@@ -266,25 +321,33 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         ctx.stroke();
         x += 12;
       }
-      currentMeasure = m;
+      cm = m;
 
-      // Draw each note in this beat slot
       for (const note of slot.notes) {
         const origIndex = notes.indexOf(note);
         const isActive = origIndex === activeNoteIndex;
+        const isSelected = origIndex === selectedNote;
         xPositions[origIndex] = x;
 
         const hand = note.hand || "right";
         const staffTop = hand === "left" ? bassTop : trebleTop;
-        drawNote(note, x, staffTop, hand, isActive);
+        drawNote(note, x, staffTop, hand, isActive, isSelected);
+
+        // Store hit area for tap detection
+        const pitches = getPitches(note);
+        const midY = staffTop + 2 * SP;
+        const firstPos = isRest(note) ? 0 : getNotePosition(pitches[0], hand);
+        const noteY = isRest(note) ? midY : midY - firstPos * (SP / 2);
+        hitAreas.push({ x, y: noteY, noteIndex: origIndex });
       }
 
       x += slot.width + GAP;
     }
 
     noteXPositions.current = xPositions;
+    noteHitAreas.current = hitAreas;
 
-  }, [score, activeNoteIndex]);
+  }, [score, activeNoteIndex, selectedNote]);
 
   // Auto-scroll to active note
   useEffect(() => {
@@ -298,13 +361,98 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
 
   if (!score || !score.notes) return null;
 
+  const selectedNoteData = selectedNote !== null ? score.notes[selectedNote] : null;
+  const selectedHand = selectedNoteData?.hand || "right";
+  const noteOptions = selectedHand === "left" ? ALL_NOTES_BASS : ALL_NOTES_TREBLE;
+
   return (
-    <div
-      ref={scrollRef}
-      className="w-full overflow-x-auto rounded-xl shadow-md bg-[#FFFDF7]"
-      style={{ WebkitOverflowScrolling: "touch" }}
-    >
-      <canvas ref={canvasRef} />
+    <div className="relative w-full">
+      <div
+        ref={scrollRef}
+        className="w-full overflow-x-auto rounded-xl shadow-md bg-[#FFFDF7]"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        <canvas
+          ref={canvasRef}
+          onClick={handleCanvasTap}
+          className={editable ? "cursor-pointer" : ""}
+        />
+      </div>
+
+      {/* Inline note editor */}
+      {editable && selectedNote !== null && selectedNoteData && (
+        <div className="mt-2 bg-white border-2 border-orange-300 rounded-xl p-3 shadow-lg flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-gray-500 uppercase">
+              Edit Note (M{selectedNoteData.measure} B{selectedNoteData.beat} {selectedHand === "left" ? "L" : "R"})
+            </span>
+            <button
+              onClick={() => { setSelectedNote(null); setEditorPos(null); }}
+              className="text-gray-400 text-lg px-1"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Pitch selector */}
+          <div>
+            <label className="text-xs text-gray-500">Pitch</label>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {noteOptions.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => handleNoteChange(selectedNote, "pitch", n)}
+                  className={`px-2 py-1 text-xs rounded-lg font-bold transition-all ${
+                    getPitches(selectedNoteData)[0] === n
+                      ? "bg-orange-500 text-white"
+                      : "bg-gray-100 text-gray-700 active:bg-gray-200"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                onClick={() => handleNoteChange(selectedNote, "pitch", "REST")}
+                className={`px-2 py-1 text-xs rounded-lg font-bold transition-all ${
+                  isRest(selectedNoteData)
+                    ? "bg-orange-500 text-white"
+                    : "bg-gray-100 text-gray-700"
+                }`}
+              >
+                Rest
+              </button>
+            </div>
+          </div>
+
+          {/* Duration selector */}
+          <div>
+            <label className="text-xs text-gray-500">Duration</label>
+            <div className="flex gap-2 mt-1">
+              {DURATIONS.map((d) => (
+                <button
+                  key={d.value}
+                  onClick={() => handleNoteChange(selectedNote, "duration", d.value)}
+                  className={`px-3 py-1 text-lg rounded-lg transition-all ${
+                    selectedNoteData.duration === d.value || selectedNoteData.duration === d.value + "."
+                      ? "bg-orange-500 text-white"
+                      : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Delete note */}
+          <button
+            onClick={() => handleNoteChange(selectedNote, "delete")}
+            className="text-red-500 text-xs font-bold mt-1 self-start"
+          >
+            Delete this note
+          </button>
+        </div>
+      )}
     </div>
   );
 }
