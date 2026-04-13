@@ -6,11 +6,16 @@ const client = new Anthropic();
 
 export async function POST(request) {
   try {
-    const { image } = await request.json();
+    const body = await request.json();
+    const { image } = body;
 
     if (!image) {
       return Response.json({ error: "No image provided" }, { status: 400 });
     }
+
+    // Log image size for debugging
+    const imageSizeKB = Math.round((image.length * 3) / 4 / 1024);
+    console.log(`Received image: ~${imageSizeKB}KB base64`);
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-20250514",
@@ -60,6 +65,7 @@ Rules:
     });
 
     const text = response.content[0].text;
+    console.log("Claude response:", text.substring(0, 200));
 
     // Try to parse, handling possible markdown code fences
     let cleaned = text.trim();
@@ -71,12 +77,13 @@ Rules:
 
     return Response.json(score);
   } catch (err) {
-    console.error("Error reading music:", err?.message || err);
-    const message = err?.status === 401
-      ? "API key issue — check your ANTHROPIC_API_KEY."
-      : err?.message?.includes("Could not process image")
-        ? "Could not read the image. Try a clearer photo with better lighting."
-        : "Could not read the sheet music. Try taking a clearer photo.";
-    return Response.json({ error: message }, { status: 500 });
+    console.error("Error reading music:", err);
+
+    // Return detailed error info so we can debug
+    const detail = err?.status
+      ? `API error ${err.status}: ${err?.error?.error?.message || err?.message}`
+      : err?.message || "Unknown error";
+
+    return Response.json({ error: detail }, { status: 500 });
   }
 }
