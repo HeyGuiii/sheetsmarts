@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export const maxDuration = 30;
+
 const client = new Anthropic();
 
 export async function POST(request) {
@@ -69,10 +71,12 @@ Rules:
 
     return Response.json(score);
   } catch (err) {
-    console.error("Error reading music:", err);
-    return Response.json(
-      { error: "Could not read the sheet music. Try taking a clearer photo." },
-      { status: 500 }
-    );
+    console.error("Error reading music:", err?.message || err);
+    const message = err?.status === 401
+      ? "API key issue — check your ANTHROPIC_API_KEY."
+      : err?.message?.includes("Could not process image")
+        ? "Could not read the image. Try a clearer photo with better lighting."
+        : "Could not read the sheet music. Try taking a clearer photo.";
+    return Response.json({ error: message }, { status: 500 });
   }
 }
