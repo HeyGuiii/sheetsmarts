@@ -21,23 +21,47 @@ export default function SnapPage() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
       const res = await fetch("/api/read-music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Image }),
         signal: controller.signal,
-        keepalive: true,
       });
 
       clearTimeout(timeoutId);
-      const data = await res.json();
 
-      if (data.error) {
-        setError(data.error);
+      if (!res.ok) {
+        // Non-streaming error response
+        const errData = await res.json().catch(() => null);
+        setError(errData?.error || `Server error (${res.status})`);
       } else {
-        setScore(data);
+        // Read the streamed text response
+        const text = await res.text();
+
+        // Parse the JSON, handling possible code fences
+        let cleaned = text.trim();
+        if (cleaned.startsWith("```")) {
+          cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+        }
+
+        // Check if the response contains an error
+        if (cleaned.includes('"error"')) {
+          try {
+            const errObj = JSON.parse(cleaned);
+            if (errObj.error) {
+              setError(errObj.error);
+            } else {
+              setScore(errObj);
+            }
+          } catch {
+            setError("Could not read the music. Try a clearer photo.");
+          }
+        } else {
+          const data = JSON.parse(cleaned);
+          setScore(data);
+        }
       }
     } catch (err) {
       if (err.name === "AbortError") {

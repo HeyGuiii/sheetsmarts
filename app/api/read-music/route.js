@@ -1,40 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const client = new Anthropic();
 
-export async function POST(request) {
-  try {
-    const body = await request.json();
-    const { image } = body;
-
-    if (!image) {
-      return Response.json({ error: "No image provided" }, { status: 400 });
-    }
-
-    // Log image size for debugging
-    const imageSizeKB = Math.round((image.length * 3) / 4 / 1024);
-    console.log(`Received image: ~${imageSizeKB}KB base64`);
-
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/jpeg",
-                data: image,
-              },
-            },
-            {
-              type: "text",
-              text: `You are a sheet music reader for a beginner piano app. Analyze this photo of sheet music and extract the notes.
+const PROMPT = `You are a sheet music reader for a beginner piano app. Analyze this photo of sheet music and extract the notes.
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation, no code fences):
 
@@ -57,33 +27,73 @@ Rules:
 - If tempo marking is not visible, assume 100 BPM.
 - Only extract the treble clef (right hand). Ignore bass clef if present.
 - Number measures starting at 1. Number beats starting at 1.
-- This is beginner sheet music, so expect simple melodies: mostly quarter and half notes in the range C4-C6.`,
+- This is beginner sheet music, so expect simple melodies: mostly quarter and half notes in the range C4-C6.`;
+
+export async function POST(request) {
+  try {
+    const { image } = await request.json();
+
+    if (!image) {
+      return Response.json({ error: "No image provided" }, { status: 400 });
+    }
+
+    // Detect image type from base64 header bytes
+    const mediaType = image.startsWith("/9j/") ? "image/jpeg"
+      : image.startsWith("iVBOR") ? "image/png"
+      : "image/jpeg";
+
+    // Use streaming to avoid Vercel's 10s timeout on Hobby plan.
+    // Streaming keeps the connection alive as long as data is flowing.
+    const stream = await client.messages.stream({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mediaType, data: image },
             },
+            { type: "text", text: PROMPT },
           ],
         },
       ],
     });
 
-    const text = response.content[0].text;
-    console.log("Claude response:", text.substring(0, 200));
+    // Stream the response chunks back to the client
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta?.type === "text_delta"
+            ) {
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+          controller.close();
+        } catch (err) {
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ error: err?.message || "Stream error" }))
+          );
+          controller.close();
+        }
+      },
+    });
 
-    // Try to parse, handling possible markdown code fences
-    let cleaned = text.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-
-    const score = JSON.parse(cleaned);
-
-    return Response.json(score);
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
+    });
   } catch (err) {
-    console.error("Error reading music:", err);
-
-    // Return detailed error info so we can debug
     const detail = err?.status
       ? `API error ${err.status}: ${err?.error?.error?.message || err?.message}`
       : err?.message || "Unknown error";
-
     return Response.json({ error: detail }, { status: 500 });
   }
 }
