@@ -2,6 +2,17 @@
 
 import { getNoteColor, getDurationWidth } from "../lib/noteUtils";
 
+// Handle both old format (string) and new format (array) for pitch
+function getPitches(note) {
+  if (Array.isArray(note.pitch)) return note.pitch;
+  return [note.pitch];
+}
+
+function isRest(note) {
+  const pitches = getPitches(note);
+  return pitches.length === 1 && pitches[0] === "REST";
+}
+
 export default function ScoreDisplay({ score, activeNoteIndex = -1, noteStatuses = null }) {
   if (!score || !score.notes || score.notes.length === 0) {
     return null;
@@ -23,11 +34,13 @@ export default function ScoreDisplay({ score, activeNoteIndex = -1, noteStatuses
         {score.notes.map((note, i) => {
           const isActive = i === activeNoteIndex;
           const status = noteStatuses ? noteStatuses[i] : null;
-          const color = getNoteColor(note.pitch);
+          const pitches = getPitches(note);
+          const rest = isRest(note);
+          const color = getNoteColor(pitches[0]);
           const widthMultiplier = getDurationWidth(note.duration);
-          const isRest = note.pitch === "REST";
+          const isChord = pitches.length > 1;
+          const hand = note.hand;
 
-          // Determine border/glow based on status
           let statusBorder = "";
           let statusIcon = "";
           if (status === "perfect") {
@@ -49,15 +62,17 @@ export default function ScoreDisplay({ score, activeNoteIndex = -1, noteStatuses
               key={i}
               className={`
                 relative flex flex-col items-center justify-center
-                rounded-xl px-1 py-2 text-white font-bold
+                rounded-xl px-1 text-white font-bold
                 transition-all duration-200
                 ${isActive ? "animate-bounce-note animate-glow scale-110 z-10" : ""}
                 ${statusBorder}
+                ${hand === "left" ? "border-b-4 border-white/30" : ""}
               `}
               style={{
-                backgroundColor: isRest ? "#d1d5db" : color,
+                backgroundColor: rest ? "#d1d5db" : color,
                 minWidth: `${Math.max(widthMultiplier * 20, 36)}px`,
-                height: "56px",
+                minHeight: isChord ? "68px" : "56px",
+                padding: "4px 4px",
               }}
             >
               {statusIcon && (
@@ -67,12 +82,37 @@ export default function ScoreDisplay({ score, activeNoteIndex = -1, noteStatuses
                   {statusIcon}
                 </span>
               )}
-              <span className="text-sm leading-none">
-                {isRest ? "–" : note.pitch.replace(/(\d)/, "")}
-              </span>
-              <span className="text-[10px] opacity-70 leading-none mt-0.5">
-                {isRest ? "rest" : note.pitch.match(/\d/)?.[0]}
-              </span>
+
+              {rest ? (
+                <>
+                  <span className="text-sm leading-none">–</span>
+                  <span className="text-[10px] opacity-70 leading-none mt-0.5">rest</span>
+                </>
+              ) : isChord ? (
+                <div className="flex flex-col items-center gap-0">
+                  {pitches.map((p, j) => (
+                    <span key={j} className="text-[11px] leading-tight">
+                      {p.replace(/(\d)/, "")}
+                      <span className="text-[8px] opacity-70">{p.match(/\d/)?.[0]}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <span className="text-sm leading-none">
+                    {pitches[0].replace(/(\d)/, "")}
+                  </span>
+                  <span className="text-[10px] opacity-70 leading-none mt-0.5">
+                    {pitches[0].match(/\d/)?.[0]}
+                  </span>
+                </>
+              )}
+
+              {hand && (
+                <span className="text-[8px] opacity-50 leading-none mt-0.5">
+                  {hand === "left" ? "L" : "R"}
+                </span>
+              )}
             </div>
           );
         })}

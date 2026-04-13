@@ -4,7 +4,7 @@ export const maxDuration = 60;
 
 const client = new Anthropic();
 
-const PROMPT = `You are a sheet music reader for a beginner piano app. Analyze this photo of sheet music and extract the notes.
+const PROMPT = `You are a sheet music reader for a piano practice app. Analyze this photo of sheet music and extract ALL notes from BOTH treble and bass clefs.
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation, no code fences):
 
@@ -14,20 +14,21 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "keySignature": "C",
   "tempo": 100,
   "notes": [
-    { "pitch": "C4", "duration": "4n", "measure": 1, "beat": 1 }
+    { "pitch": ["C4"], "duration": "4n", "measure": 1, "beat": 1, "hand": "right" }
   ]
 }
 
 Rules:
-- pitch: Use scientific notation. Middle C = "C4". Use sharps as "#" and flats as "b". For rests, use "REST".
+- pitch: ALWAYS an array of note names, even for single notes. Use scientific notation. Middle C = "C4". Use sharps as "#" and flats as "b". For rests, use ["REST"].
+- CHORDS: When multiple notes are stacked vertically (played at the same time), put all of them in the pitch array. Example: a C major chord = ["C4", "E4", "G4"].
+- BOTH CLEFS: Extract notes from the treble clef (right hand, hand="right") AND the bass clef (left hand, hand="left"). If notes in both clefs occur on the same beat, create separate entries for each hand.
 - duration: Use Tone.js notation: "1n" = whole, "2n" = half, "4n" = quarter, "8n" = eighth, "16n" = sixteenth. Add "." for dotted notes (e.g. "4n.").
-- Tied notes: Merge into a single note with combined duration. Two tied quarter notes = "2n".
+- Tied notes: Merge into a single note with combined duration.
 - If the time signature is not visible, assume 4/4.
 - If the key signature is not visible, assume C major.
 - If tempo marking is not visible, assume 100 BPM.
-- Only extract the treble clef (right hand). Ignore bass clef if present.
 - Number measures starting at 1. Number beats starting at 1.
-- This is beginner sheet music, so expect simple melodies: mostly quarter and half notes in the range C4-C6.`;
+- Bass clef notes are typically in the range C2-C4. Treble clef notes are typically C4-C6.`;
 
 export async function POST(request) {
   try {
