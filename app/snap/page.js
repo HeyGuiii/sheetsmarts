@@ -135,7 +135,7 @@ export default function SnapPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 min — OMR can be slow on free tier
 
-      const res = await fetch("https://sheetsmarts-omr.onrender.com/recognize", {
+      const res = await fetch("https://three-pianos-decide.loca.lt/recognize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Image }),
