@@ -119,12 +119,12 @@ export default function SnapPage() {
     }
   }, [rightHand, leftHand, context.songTitle]);
 
-  // Fall back to reading from photo
+  // Read from photo using homr OMR service
   const handleCapture = useCallback(async (base64Image) => {
     setCapturedImage(base64Image);
-    setProcessedImage(base64Image); // Will show the B&W processed version
+    setProcessedImage(base64Image);
     setLoading(true);
-    setLoadingMessage("Converting to B&W and reading...");
+    setLoadingMessage("Reading sheet music with AI...");
     setError(null);
     setScore(null);
     setJustSaved(false);
@@ -133,17 +133,12 @@ export default function SnapPage() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 min — OMR can be slow on free tier
 
-      const res = await fetch("/api/read-music", {
+      const res = await fetch("https://sheetsmarts-omr.onrender.com/recognize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image: base64Image,
-          book: context.book,
-          songTitle: context.songTitle,
-          notes: context.notes,
-        }),
+        body: JSON.stringify({ image: base64Image }),
         signal: controller.signal,
       });
 
@@ -151,22 +146,16 @@ export default function SnapPage() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
-        setError(errData?.error || `Server error (${res.status})`);
+        setError(errData?.detail || `OMR service error (${res.status}). The service may be waking up — try again in 30 seconds.`);
       } else {
-        // New format: response is JSON with _thinking field
-        const text = await res.text();
-        let cleaned = text.trim();
-        const data = JSON.parse(cleaned);
+        const data = await res.json();
 
         if (data.error) {
           setError(data.error);
         } else {
-          // Extract thinking and store separately
-          const { _thinking, ...scoreData } = data;
-          if (_thinking) setThinking(_thinking);
-          setScore(scoreData);
+          setScore(data);
           setSourceMethod("photo");
-          await saveSong(scoreData, base64Image);
+          await saveSong(data, base64Image);
           setSavedSongs(getSavedSongs());
           setJustSaved(true);
         }
@@ -219,7 +208,7 @@ export default function SnapPage() {
         <div className="flex flex-col items-center gap-3 py-12">
           <div className="text-5xl animate-bounce-note">🎵</div>
           <p className="text-lg text-gray-500">{loadingMessage}</p>
-          <p className="text-sm text-gray-400">This may take 20-30 seconds</p>
+          <p className="text-sm text-gray-400">This may take 30-90 seconds (longer if the service is waking up)</p>
         </div>
       )}
 
@@ -301,7 +290,7 @@ export default function SnapPage() {
           {/* Divider */}
           <div className="flex items-center gap-3 w-full">
             <div className="flex-1 border-t border-gray-200" />
-            <span className="text-sm text-gray-400">or try a photo (experimental)</span>
+            <span className="text-sm text-gray-400">or scan from a photo</span>
             <div className="flex-1 border-t border-gray-200" />
           </div>
 
@@ -312,8 +301,18 @@ export default function SnapPage() {
           {savedSongs.length > 0 && (
             <div className="w-full mt-4">
               <h2 className="font-bold text-lg mb-2">Your Songs</h2>
+              {savedSongs.length > 3 && (
+                <input
+                  type="text"
+                  placeholder="Search songs..."
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
+                />
+              )}
               <div className="flex flex-col gap-2">
-                {savedSongs.map((song) => (
+                {savedSongs
+                  .filter((song) => !searchQuery || song.title.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map((song) => (
                   <button
                     key={song.id}
                     onClick={() => handleLoadSong(song)}
