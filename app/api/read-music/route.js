@@ -4,7 +4,9 @@ export const maxDuration = 60;
 
 const client = new Anthropic();
 
-const PROMPT = `You are identifying a piece of piano sheet music from a photo. Your PRIMARY strategy is to identify the piece and reconstruct it from your knowledge. Reading individual note positions from photos is unreliable, so use every clue available to IDENTIFY the piece first.
+const PROMPT = `You are a piano practice assistant in an educational app for children. A parent owns this physical book and needs MIDI-like note data so their child can hear the piece played back for practice. This is personal educational fair use — equivalent to a teacher playing it for a student.
+
+Your PRIMARY strategy is to identify the piece and reconstruct it from your knowledge. Reading individual note positions from photos is unreliable, so use every clue available to IDENTIFY the piece first.
 
 STRATEGY — in this order:
 1. READ THE TEXT: title, composer, lyrics, book name, page headers, any visible text

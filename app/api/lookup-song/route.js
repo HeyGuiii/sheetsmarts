@@ -4,14 +4,20 @@ export const maxDuration = 60;
 
 const client = new Anthropic();
 
-const PROMPT = `You are a piano sheet music expert. The user wants to practice a specific piece. If you know this piece, return the complete note-by-note transcription.
+const PROMPT = `You are a piano practice assistant. The user will describe notes in a simple text format. Convert their description into structured JSON for playback.
 
-Return ONLY a JSON object (no markdown, no explanation, no code fences):
+The user may write notes like:
+- "A A A A G E E(2) E(w) E(w)" meaning A quarter, A quarter, A quarter, A quarter, G quarter, E quarter, E half, E whole, E whole
+- Letters A-G are note names. Default octave is 4 for right hand, 3 for left hand.
+- Numbers in parentheses indicate beats: (2)=half, (w)=whole, (d)=dotted quarter
+- No parentheses = quarter note
+- "rest" or "-" = a rest
+- They may also say "nothing" for empty measures in one hand
 
-If you KNOW the piece:
+Return ONLY a JSON object (no markdown, no code fences):
+
 {
-  "found": true,
-  "title": "exact title",
+  "title": "string or null",
   "timeSignature": [4, 4],
   "keySignature": "C",
   "tempo": 100,
@@ -20,39 +26,32 @@ If you KNOW the piece:
   ]
 }
 
-If you DO NOT know the piece:
-{ "found": false }
-
-Rules for notes:
-- pitch: ALWAYS an array. Single notes: ["E4"]. Chords: ["C4", "E4", "G4"]. Rests: ["REST"].
-- Use scientific pitch notation. Middle C = "C4". Sharps: "#". Flats: "b".
-- duration: "1n"=whole, "2n"=half, "4n"=quarter, "8n"=eighth, "16n"=sixteenth. Dotted: add "."
-- hand: "right" for treble clef, "left" for bass clef
-- measure: starting at 1. beat: starting at 1.
-- Include BOTH hands (treble and bass clef).
-- Be precise — this will be played back as audio. Every note matters.
-- For beginner arrangements, use the simplified version from the specific book if you know it.`;
+Rules:
+- pitch: ALWAYS an array. ["E4"] for single notes. ["REST"] for rests.
+- duration: "1n"=whole, "2n"=half, "4n"=quarter, "8n"=eighth. Dotted: add "."
+- hand: "right" or "left"
+- Automatically calculate measure and beat numbers based on the time signature.
+- Be precise about beat placement — beats must add up correctly per measure.`;
 
 export async function POST(request) {
   try {
-    const { book, songTitle, notes } = await request.json();
+    const { rightHand, leftHand, songTitle, timeSignature, tempo } = await request.json();
 
-    if (!songTitle) {
-      return Response.json({ error: "No song title provided" }, { status: 400 });
+    if (!rightHand && !leftHand) {
+      return Response.json({ error: "No notes provided" }, { status: 400 });
     }
 
-    let query = `Find this piano piece and return all the notes:\n\nSong: "${songTitle}"`;
-    if (book) query += `\nBook: "${book}"`;
-    if (notes) query += `\nAdditional info: ${notes}`;
-    query += `\n\nThis is from a widely-used piano lesson book. Think carefully about what you know about this piece — the melody, the key, the rhythm, and both hands. Piano Adventures by Faber & Faber is one of the most popular piano methods in the world, so you've likely seen these pieces in your training data. Return the full transcription with both hands. If you truly have no idea, return { "found": false }.`;
+    let query = `Convert these piano notes to structured JSON for playback:\n\n`;
+    if (songTitle) query += `Title: "${songTitle}"\n`;
+    if (timeSignature) query += `Time signature: ${timeSignature}\n`;
+    if (tempo) query += `Tempo: ${tempo} BPM\n`;
+    if (rightHand) query += `Right hand: ${rightHand}\n`;
+    if (leftHand) query += `Left hand: ${leftHand}\n`;
+    query += `\nConvert to the JSON format. Make sure beats add up correctly per measure.`;
 
     const stream = await client.messages.stream({
-      model: "claude-opus-4-20250514",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 8000,
-      thinking: {
-        type: "enabled",
-        budget_tokens: 8000,
-      },
       messages: [
         { role: "user", content: query },
       ],

@@ -41,10 +41,12 @@ export default function SnapPage() {
   const [savedSongs, setSavedSongs] = useState([]);
   const [justSaved, setJustSaved] = useState(false);
   const [context, setContext] = useState({ book: "", songTitle: "", notes: "" });
-  const [sourceMethod, setSourceMethod] = useState(null); // "lookup" or "photo"
+  const [sourceMethod, setSourceMethod] = useState(null); // "typed" or "photo"
   const [thinking, setThinking] = useState(null);
   const [showThinking, setShowThinking] = useState(false);
   const [processedImage, setProcessedImage] = useState(null);
+  const [rightHand, setRightHand] = useState("");
+  const [leftHand, setLeftHand] = useState("");
 
   useEffect(() => {
     setSavedSongs(getSavedSongs());
@@ -59,17 +61,18 @@ export default function SnapPage() {
     });
   }, []);
 
-  // Try to look up the song by name first (cheap, fast, accurate)
-  const handleLookup = useCallback(async () => {
-    if (!context.songTitle.trim()) return;
+  // Convert typed notes to structured score
+  const handleTypedNotes = useCallback(async () => {
+    if (!rightHand.trim() && !leftHand.trim()) return;
 
     setLoading(true);
-    setLoadingMessage("Looking up the song...");
+    setLoadingMessage("Converting your notes...");
     setError(null);
     setScore(null);
     setCapturedImage(null);
     setJustSaved(false);
     setSourceMethod(null);
+    setThinking(null);
 
     try {
       const controller = new AbortController();
@@ -79,9 +82,11 @@ export default function SnapPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          book: context.book,
-          songTitle: context.songTitle,
-          notes: context.notes,
+          rightHand: rightHand.trim(),
+          leftHand: leftHand.trim(),
+          songTitle: context.songTitle.trim() || null,
+          timeSignature: "4/4",
+          tempo: "100",
         }),
         signal: controller.signal,
       });
@@ -91,29 +96,28 @@ export default function SnapPage() {
       if (res.ok) {
         const data = await parseStreamedResponse(res);
 
-        if (data.found && data.notes?.length > 0) {
+        if (data.notes?.length > 0) {
           setScore(data);
-          setSourceMethod("lookup");
+          setSourceMethod("typed");
           await saveSong(data, null);
           setSavedSongs(getSavedSongs());
           setJustSaved(true);
-          setLoading(false);
-          return;
+        } else {
+          setError("Could not parse the notes. Try again with the format: A A A A G E E(2) E(w)");
         }
+      } else {
+        setError("Something went wrong. Try again.");
       }
-
-      // Song not found — tell user to take a photo
-      setLoading(false);
-      setError("I don't know that piece by name. Take a photo and I'll read it from the sheet music!");
     } catch (err) {
-      setLoading(false);
       if (err.name === "AbortError") {
         setError("Took too long. Try again.");
       } else {
-        setError("Could not look up the song. Try taking a photo instead.");
+        setError("Lost connection. Try again.");
       }
+    } finally {
+      setLoading(false);
     }
-  }, [context]);
+  }, [rightHand, leftHand, context.songTitle]);
 
   // Fall back to reading from photo
   const handleCapture = useCallback(async (base64Image) => {
@@ -245,54 +249,56 @@ export default function SnapPage() {
       {/* Input (show when no score and not loading and no error) */}
       {!score && !loading && !error && (
         <div className="flex flex-col items-center gap-4 py-4 w-full max-w-md">
-          {/* Context fields */}
-          <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-200 flex flex-col gap-3">
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase">Book</label>
-              <input
-                type="text"
-                value={context.book}
-                onChange={(e) => updateContext("book", e.target.value)}
-                placeholder='e.g. "Piano Adventures Level 1"'
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
-              />
-            </div>
+          {/* Type the notes */}
+          <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-blue-200 flex flex-col gap-3">
+            <h2 className="font-bold text-base">Type the Notes</h2>
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase">Song Title</label>
               <input
                 type="text"
                 value={context.songTitle}
                 onChange={(e) => updateContext("songTitle", e.target.value)}
-                placeholder='e.g. "Ode to Joy"'
+                placeholder='e.g. "Young Hunter"'
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
               />
             </div>
             <div>
-              <label className="text-xs font-bold text-gray-500 uppercase">Extra Notes</label>
+              <label className="text-xs font-bold text-gray-500 uppercase">Right Hand (treble)</label>
               <input
                 type="text"
-                value={context.notes}
-                onChange={(e) => updateContext("notes", e.target.value)}
-                placeholder='e.g. "page 42, key of G"'
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
+                value={rightHand}
+                onChange={(e) => setRightHand(e.target.value)}
+                placeholder='e.g. A A A A G E E(2) E(w) E(w)'
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1 font-mono"
               />
             </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">Left Hand (bass)</label>
+              <input
+                type="text"
+                value={leftHand}
+                onChange={(e) => setLeftHand(e.target.value)}
+                placeholder='e.g. - - C A A G A'
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1 font-mono"
+              />
+            </div>
+            <p className="text-xs text-gray-400">
+              Letters = quarter notes. (2) = half note. (w) = whole note. (8) = eighth note. - = rest. (d) = dotted quarter.
+            </p>
+            {(rightHand.trim() || leftHand.trim()) && (
+              <button
+                onClick={handleTypedNotes}
+                className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-6 py-3 text-lg font-bold active:scale-95 transition-all shadow-lg w-full"
+              >
+                🎵 Play These Notes
+              </button>
+            )}
           </div>
-
-          {/* Primary action: Look up by name */}
-          {context.songTitle.trim() && (
-            <button
-              onClick={handleLookup}
-              className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-8 py-4 text-lg font-bold active:scale-95 transition-all shadow-lg w-full"
-            >
-              🔍 Find "{context.songTitle.trim()}"
-            </button>
-          )}
 
           {/* Divider */}
           <div className="flex items-center gap-3 w-full">
             <div className="flex-1 border-t border-gray-200" />
-            <span className="text-sm text-gray-400">or take a photo</span>
+            <span className="text-sm text-gray-400">or try a photo (experimental)</span>
             <div className="flex-1 border-t border-gray-200" />
           </div>
 
