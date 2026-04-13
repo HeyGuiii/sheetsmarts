@@ -137,7 +137,7 @@ export default function SnapPage() {
 
       const res = await fetch("https://three-pianos-decide.loca.lt/recognize", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Bypass-Tunnel-Reminder": "true" },
         body: JSON.stringify({ image: base64Image }),
         signal: controller.signal,
       });
