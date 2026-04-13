@@ -59,7 +59,7 @@ export default function SnapPage() {
             } else {
               setScore(errObj);
               // Auto-save to library
-              saveSong(errObj, base64Image);
+              await saveSong(errObj, base64Image);
               setSavedSongs(getSavedSongs());
               setJustSaved(true);
             }
@@ -70,7 +70,7 @@ export default function SnapPage() {
           const data = JSON.parse(cleaned);
           setScore(data);
           // Auto-save to library
-          saveSong(data, base64Image);
+          await saveSong(data, base64Image);
           setSavedSongs(getSavedSongs());
           setJustSaved(true);
         }
