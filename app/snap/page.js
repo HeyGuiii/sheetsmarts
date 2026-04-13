@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import CameraCapture from "../../components/CameraCapture";
 import ScoreDisplay from "../../components/ScoreDisplay";
 import PlaybackControls from "../../components/PlaybackControls";
+import { getSavedSongs, saveSong, deleteSong } from "../../lib/songLibrary";
 
 export default function SnapPage() {
   const [score, setScore] = useState(null);
@@ -12,12 +13,19 @@ export default function SnapPage() {
   const [error, setError] = useState(null);
   const [activeNote, setActiveNote] = useState(-1);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [savedSongs, setSavedSongs] = useState([]);
+  const [justSaved, setJustSaved] = useState(false);
+
+  useEffect(() => {
+    setSavedSongs(getSavedSongs());
+  }, []);
 
   const handleCapture = useCallback(async (base64Image) => {
     setCapturedImage(base64Image);
     setLoading(true);
     setError(null);
     setScore(null);
+    setJustSaved(false);
 
     try {
       const controller = new AbortController();
@@ -33,20 +41,16 @@ export default function SnapPage() {
       clearTimeout(timeoutId);
 
       if (!res.ok) {
-        // Non-streaming error response
         const errData = await res.json().catch(() => null);
         setError(errData?.error || `Server error (${res.status})`);
       } else {
-        // Read the streamed text response
         const text = await res.text();
 
-        // Parse the JSON, handling possible code fences
         let cleaned = text.trim();
         if (cleaned.startsWith("```")) {
           cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
         }
 
-        // Check if the response contains an error
         if (cleaned.includes('"error"')) {
           try {
             const errObj = JSON.parse(cleaned);
@@ -54,6 +58,10 @@ export default function SnapPage() {
               setError(errObj.error);
             } else {
               setScore(errObj);
+              // Auto-save to library
+              saveSong(errObj, base64Image);
+              setSavedSongs(getSavedSongs());
+              setJustSaved(true);
             }
           } catch {
             setError("Could not read the music. Try a clearer photo.");
@@ -61,6 +69,10 @@ export default function SnapPage() {
         } else {
           const data = JSON.parse(cleaned);
           setScore(data);
+          // Auto-save to library
+          saveSong(data, base64Image);
+          setSavedSongs(getSavedSongs());
+          setJustSaved(true);
         }
       }
     } catch (err) {
@@ -79,6 +91,21 @@ export default function SnapPage() {
     setError(null);
     setCapturedImage(null);
     setActiveNote(-1);
+    setJustSaved(false);
+  }, []);
+
+  const handleLoadSong = useCallback((song) => {
+    setScore(song.score);
+    setCapturedImage(song.image);
+    setActiveNote(-1);
+    setError(null);
+    setJustSaved(false);
+  }, []);
+
+  const handleDeleteSong = useCallback((id, e) => {
+    e.stopPropagation();
+    deleteSong(id);
+    setSavedSongs(getSavedSongs());
   }, []);
 
   return (
@@ -113,18 +140,59 @@ export default function SnapPage() {
 
       {/* Camera (show when no score and not loading) */}
       {!score && !loading && !error && (
-        <div className="flex flex-col items-center gap-4 py-4">
+        <div className="flex flex-col items-center gap-4 py-4 w-full max-w-md">
           <p className="text-gray-500 text-center">
             Take a photo of your sheet music and hear how it sounds!
           </p>
           <CameraCapture onCapture={handleCapture} />
+
+          {/* Saved songs library */}
+          {savedSongs.length > 0 && (
+            <div className="w-full mt-4">
+              <h2 className="font-bold text-lg mb-2">Your Songs</h2>
+              <div className="flex flex-col gap-2">
+                {savedSongs.map((song) => (
+                  <button
+                    key={song.id}
+                    onClick={() => handleLoadSong(song)}
+                    className="bg-white border-2 border-gray-200 rounded-2xl p-3 text-left active:scale-[0.98] transition-all shadow-sm flex items-center gap-3"
+                  >
+                    {song.image && (
+                      <img
+                        src={`data:image/jpeg;base64,${song.image}`}
+                        alt=""
+                        className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold truncate">{song.title}</div>
+                      <div className="text-xs text-gray-500">
+                        {song.score.notes?.length || 0} notes | {new Date(song.savedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <span
+                      onClick={(e) => handleDeleteSong(song.id, e)}
+                      className="text-gray-400 hover:text-red-500 text-lg px-2 flex-shrink-0"
+                    >
+                      ✕
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Score display and playback */}
       {score && (
         <div className="flex flex-col items-center gap-6 w-full">
-          {/* Show captured image thumbnail */}
+          {justSaved && (
+            <div className="bg-green-100 text-green-700 rounded-xl px-4 py-2 text-sm">
+              Saved to your library!
+            </div>
+          )}
+
           {capturedImage && (
             <div className="w-full max-w-md">
               <img
@@ -153,7 +221,6 @@ export default function SnapPage() {
             <Link
               href="/practice"
               onClick={() => {
-                // Store score in sessionStorage so Practice page can use it
                 if (typeof window !== "undefined") {
                   sessionStorage.setItem("sheetsmarts-score", JSON.stringify(score));
                 }

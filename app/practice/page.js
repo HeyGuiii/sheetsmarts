@@ -7,15 +7,19 @@ import PlaybackControls from "../../components/PlaybackControls";
 import Recorder from "../../components/Recorder";
 import FeedbackDisplay from "../../components/FeedbackDisplay";
 import { ALL_DEMOS } from "../../lib/demoScores";
+import { getSavedSongs } from "../../lib/songLibrary";
 
 export default function PracticePage() {
   const [score, setScore] = useState(null);
   const [activeNote, setActiveNote] = useState(-1);
   const [recordedNotes, setRecordedNotes] = useState(null);
   const [phase, setPhase] = useState("select"); // select | ready | feedback
+  const [savedSongs, setSavedSongs] = useState([]);
 
-  // Check sessionStorage for a score from Snap & Play
   useEffect(() => {
+    setSavedSongs(getSavedSongs());
+
+    // Check sessionStorage for a score from Snap & Play
     if (typeof window !== "undefined") {
       const stored = sessionStorage.getItem("sheetsmarts-score");
       if (stored) {
@@ -69,19 +73,53 @@ export default function PracticePage() {
             Pick a song to practice, or snap a photo of your sheet music first!
           </p>
 
-          <div className="flex flex-col gap-3 w-full">
-            {ALL_DEMOS.map((demo, i) => (
-              <button
-                key={i}
-                onClick={() => selectScore(demo)}
-                className="bg-white hover:bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-left active:scale-[0.98] transition-all shadow-sm"
-              >
-                <div className="font-bold text-lg">{demo.title}</div>
-                <div className="text-sm text-gray-500">
-                  {demo.notes.length} notes | {demo.tempo} BPM
-                </div>
-              </button>
-            ))}
+          {/* Saved songs */}
+          {savedSongs.length > 0 && (
+            <div className="w-full">
+              <h2 className="font-bold text-sm text-gray-500 uppercase mb-2">Your Songs</h2>
+              <div className="flex flex-col gap-2">
+                {savedSongs.map((song) => (
+                  <button
+                    key={song.id}
+                    onClick={() => selectScore(song.score)}
+                    className="bg-white hover:bg-gray-50 border-2 border-blue-200 rounded-2xl p-3 text-left active:scale-[0.98] transition-all shadow-sm flex items-center gap-3"
+                  >
+                    {song.image && (
+                      <img
+                        src={`data:image/jpeg;base64,${song.image}`}
+                        alt=""
+                        className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold truncate">{song.title}</div>
+                      <div className="text-xs text-gray-500">
+                        {song.score.notes?.length || 0} notes
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Demo songs */}
+          <div className="w-full">
+            <h2 className="font-bold text-sm text-gray-500 uppercase mb-2">Demo Songs</h2>
+            <div className="flex flex-col gap-2">
+              {ALL_DEMOS.map((demo, i) => (
+                <button
+                  key={i}
+                  onClick={() => selectScore(demo)}
+                  className="bg-white hover:bg-gray-50 border-2 border-gray-200 rounded-2xl p-4 text-left active:scale-[0.98] transition-all shadow-sm"
+                >
+                  <div className="font-bold text-lg">{demo.title}</div>
+                  <div className="text-sm text-gray-500">
+                    {demo.notes.length} notes | {demo.tempo} BPM
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <Link
