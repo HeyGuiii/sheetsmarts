@@ -5,6 +5,7 @@ import Link from "next/link";
 import CameraCapture from "../../components/CameraCapture";
 import ScoreDisplay from "../../components/ScoreDisplay";
 import PlaybackControls from "../../components/PlaybackControls";
+import SheetMusicView from "../../components/SheetMusicView";
 import { getSavedSongs, saveSong, deleteSong } from "../../lib/songLibrary";
 
 export default function SnapPage() {
@@ -202,6 +203,12 @@ export default function SnapPage() {
               />
             </div>
           )}
+
+          {/* Sheet music notation — compare with original photo */}
+          <div className="w-full max-w-md">
+            <h3 className="text-sm font-bold text-gray-500 uppercase mb-2 text-center">What I Read</h3>
+            <SheetMusicView score={score} activeNoteIndex={activeNote} />
+          </div>
 
           <ScoreDisplay score={score} activeNoteIndex={activeNote} />
 
