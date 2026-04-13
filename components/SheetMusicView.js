@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect } from "react";
 
 const TREBLE_POSITIONS = {
   "C4": -6, "D4": -5, "E4": -4, "F4": -3, "G4": -2,
@@ -16,50 +16,22 @@ const BASS_POSITIONS = {
 
 function getNotePosition(noteName, hand) {
   const natural = noteName.replace(/#|b/g, "");
-  const positions = hand === "left" ? BASS_POSITIONS : TREBLE_POSITIONS;
-  return positions[natural] ?? 0;
+  return (hand === "left" ? BASS_POSITIONS : TREBLE_POSITIONS)[natural] ?? 0;
 }
 
-function hasAccidental(noteName) {
-  if (noteName.includes("#")) return "#";
-  if (noteName.includes("b")) return "b";
-  return null;
-}
-
-function getPitches(note) {
-  return Array.isArray(note.pitch) ? note.pitch : [note.pitch];
-}
-
-function isRest(note) {
-  const p = getPitches(note);
-  return p.length === 1 && p[0] === "REST";
-}
-
-function getDurationWidth(duration) {
-  const map = { "16n": 30, "8n": 35, "8n.": 40, "4n": 50, "4n.": 60, "2n": 70, "2n.": 80, "1n": 90 };
-  return map[duration] || 50;
-}
-
-function isFilledNote(duration) {
-  return ["4n", "4n.", "8n", "8n.", "16n"].includes(duration);
-}
-
-function hasStem(duration) {
-  return duration !== "1n";
-}
-
-function hasFlag(duration) {
-  return ["8n", "8n."].includes(duration);
-}
-
-function hasDot(duration) {
-  return duration.includes(".");
-}
+function hasAccidental(n) { return n.includes("#") ? "#" : n.includes("b") ? "b" : null; }
+function getPitches(note) { return Array.isArray(note.pitch) ? note.pitch : [note.pitch]; }
+function isRest(note) { const p = getPitches(note); return p.length === 1 && p[0] === "REST"; }
+function getDurationWidth(d) { return ({ "16n":30,"8n":35,"8n.":40,"4n":50,"4n.":60,"2n":70,"2n.":80,"1n":90 })[d] || 50; }
+function isFilledNote(d) { return ["4n","4n.","8n","8n.","16n"].includes(d); }
+function hasStem(d) { return d !== "1n"; }
+function hasFlag(d) { return ["8n","8n."].includes(d); }
+function hasDot(d) { return d.includes("."); }
 
 export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
   const canvasRef = useRef(null);
   const scrollRef = useRef(null);
-  const noteXPositions = useRef([]); // store x positions for scrolling
+  const noteXPositions = useRef({});
 
   useEffect(() => {
     if (!score || !score.notes || !canvasRef.current) return;
@@ -72,35 +44,56 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     const leftNotes = notes.filter((n) => n.hand === "left");
     const hasBass = leftNotes.length > 0;
 
-    const STAFF_SPACING = 12;
+    const SP = 12; // staff line spacing
     const LEFT_MARGIN = 55;
     const RIGHT_MARGIN = 30;
     const TOP_MARGIN = 45;
-    const NOTE_GAP = 8;
+    const GAP = 8;
+    const BRACE_GAP = hasBass ? 45 : 0; // gap between treble and bass staves
+
+    const trebleTop = TOP_MARGIN;
+    const trebleBot = trebleTop + SP * 4;
+    const bassTop = hasBass ? trebleBot + BRACE_GAP : 0;
+    const bassBot = hasBass ? bassTop + SP * 4 : 0;
+    const systemHeight = hasBass ? bassBot + 50 : trebleBot + 50;
+
+    // Build a unified timeline grouped by measure+beat
+    // so treble and bass notes at the same position share the same x
+    const timeline = [];
+    const visited = new Set();
+    for (const note of notes) {
+      const key = `${note.measure}-${note.beat}`;
+      if (!visited.has(key)) {
+        visited.add(key);
+        const atBeat = notes.filter((n) => n.measure === note.measure && n.beat === note.beat);
+        // Width = max duration width of notes at this beat
+        const width = Math.max(...atBeat.map((n) => getDurationWidth(n.duration)));
+        timeline.push({ key, notes: atBeat, width });
+      }
+    }
 
     // Calculate total width
     let totalWidth = LEFT_MARGIN + 35;
-    const mainNotes = rightNotes.length > 0 ? rightNotes : notes;
-    for (const note of mainNotes) {
-      totalWidth += getDurationWidth(note.duration) + NOTE_GAP;
+    let currentMeasure = 0;
+    for (const slot of timeline) {
+      const m = slot.notes[0].measure;
+      if (m > currentMeasure && currentMeasure > 0) totalWidth += 12; // bar line space
+      currentMeasure = m;
+      totalWidth += slot.width + GAP;
     }
     totalWidth += RIGHT_MARGIN;
     totalWidth = Math.max(totalWidth, 400);
 
-    const trebleStaffTop = TOP_MARGIN;
-    const bassStaffTop = hasBass ? trebleStaffTop + STAFF_SPACING * 4 + 55 : 0;
-    const totalHeight = hasBass ? bassStaffTop + STAFF_SPACING * 4 + 65 : trebleStaffTop + STAFF_SPACING * 4 + 65;
-
     const scale = 2;
     canvas.width = totalWidth * scale;
-    canvas.height = totalHeight * scale;
+    canvas.height = systemHeight * scale;
     canvas.style.width = totalWidth + "px";
-    canvas.style.height = totalHeight + "px";
+    canvas.style.height = systemHeight + "px";
     ctx.scale(scale, scale);
 
     // Background
     ctx.fillStyle = "#FFFDF7";
-    ctx.fillRect(0, 0, totalWidth, totalHeight);
+    ctx.fillRect(0, 0, totalWidth, systemHeight);
 
     // Title
     if (score.title) {
@@ -110,7 +103,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       ctx.fillText(score.title, totalWidth / 2, 18);
     }
 
-    // Info line
     ctx.fillStyle = "#888";
     ctx.font = "10px Arial";
     ctx.textAlign = "center";
@@ -119,16 +111,16 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       totalWidth / 2, 32
     );
 
+    // Draw staff lines
     function drawStaff(y, clef) {
       ctx.strokeStyle = "#555";
       ctx.lineWidth = 0.7;
       for (let i = 0; i < 5; i++) {
         ctx.beginPath();
-        ctx.moveTo(LEFT_MARGIN - 10, y + i * STAFF_SPACING);
-        ctx.lineTo(totalWidth - RIGHT_MARGIN, y + i * STAFF_SPACING);
+        ctx.moveTo(LEFT_MARGIN - 10, y + i * SP);
+        ctx.lineTo(totalWidth - RIGHT_MARGIN, y + i * SP);
         ctx.stroke();
       }
-
       ctx.fillStyle = "#333";
       ctx.textAlign = "left";
       if (clef === "treble") {
@@ -140,20 +132,32 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       }
     }
 
+    drawStaff(trebleTop, "treble");
+    if (hasBass) {
+      drawStaff(bassTop, "bass");
+      // Brace connecting staves
+      ctx.strokeStyle = "#555";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(LEFT_MARGIN - 10, trebleTop);
+      ctx.lineTo(LEFT_MARGIN - 10, bassBot);
+      ctx.stroke();
+    }
+
+    // Draw note on staff
     function drawNote(note, x, staffTop, hand, isActive) {
       const pitches = getPitches(note);
       const activeColor = "#3B82F6";
       const normalColor = "#1a1a2e";
       const color = isActive ? activeColor : normalColor;
 
-      // Active highlight glow
       if (isActive) {
-        const middleLineY = staffTop + 2 * STAFF_SPACING;
+        const midY = staffTop + 2 * SP;
         const firstPos = isRest(note) ? 0 : getNotePosition(pitches[0], hand);
-        const glowY = isRest(note) ? middleLineY : middleLineY - firstPos * (STAFF_SPACING / 2);
+        const glowY = isRest(note) ? midY : midY - firstPos * (SP / 2);
         ctx.beginPath();
         ctx.arc(x, glowY, 14, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(59, 130, 246, 0.15)";
+        ctx.fillStyle = "rgba(59, 130, 246, 0.18)";
         ctx.fill();
       }
 
@@ -161,7 +165,7 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         ctx.fillStyle = isActive ? activeColor : "#555";
         ctx.font = "18px Arial";
         ctx.textAlign = "center";
-        ctx.fillText("𝄾", x, staffTop + STAFF_SPACING * 2 + 5);
+        ctx.fillText("𝄾", x, staffTop + SP * 2 + 5);
         return;
       }
 
@@ -172,37 +176,30 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
 
       for (const pitch of pitches) {
         const pos = getNotePosition(pitch, hand);
-        const middleLineY = staffTop + 2 * STAFF_SPACING;
-        const noteY = middleLineY - pos * (STAFF_SPACING / 2);
-
-        const accidental = hasAccidental(pitch);
+        const midY = staffTop + 2 * SP;
+        const noteY = midY - pos * (SP / 2);
+        const acc = hasAccidental(pitch);
 
         // Ledger lines
         ctx.strokeStyle = color;
         ctx.lineWidth = 0.8;
         if (noteY < staffTop - 1) {
-          for (let ly = staffTop - STAFF_SPACING; ly >= noteY - 1; ly -= STAFF_SPACING) {
-            ctx.beginPath();
-            ctx.moveTo(x - 9, ly);
-            ctx.lineTo(x + 9, ly);
-            ctx.stroke();
+          for (let ly = staffTop - SP; ly >= noteY - 1; ly -= SP) {
+            ctx.beginPath(); ctx.moveTo(x - 9, ly); ctx.lineTo(x + 9, ly); ctx.stroke();
           }
         }
-        if (noteY > staffTop + 4 * STAFF_SPACING + 1) {
-          for (let ly = staffTop + 5 * STAFF_SPACING; ly <= noteY + 1; ly += STAFF_SPACING) {
-            ctx.beginPath();
-            ctx.moveTo(x - 9, ly);
-            ctx.lineTo(x + 9, ly);
-            ctx.stroke();
+        if (noteY > staffTop + 4 * SP + 1) {
+          for (let ly = staffTop + 5 * SP; ly <= noteY + 1; ly += SP) {
+            ctx.beginPath(); ctx.moveTo(x - 9, ly); ctx.lineTo(x + 9, ly); ctx.stroke();
           }
         }
 
         // Accidental
-        if (accidental) {
+        if (acc) {
           ctx.fillStyle = color;
           ctx.font = "13px Arial";
           ctx.textAlign = "right";
-          ctx.fillText(accidental === "#" ? "♯" : "♭", x - 8, noteY + 4);
+          ctx.fillText(acc === "#" ? "♯" : "♭", x - 8, noteY + 4);
         }
 
         // Note head
@@ -214,7 +211,6 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         ctx.lineWidth = 1.3;
         ctx.stroke();
 
-        // Dot
         if (dot) {
           ctx.beginPath();
           ctx.arc(x + 9, noteY, 1.5, 0, Math.PI * 2);
@@ -226,7 +222,7 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
       // Stem
       if (stem && pitches.length > 0) {
         const positions = pitches.map((p) => getNotePosition(p, hand));
-        const middleLineY = staffTop + 2 * STAFF_SPACING;
+        const midY = staffTop + 2 * SP;
         const avgPos = positions.reduce((a, b) => a + b, 0) / positions.length;
         const stemUp = avgPos <= 0;
         const topPos = Math.max(...positions);
@@ -235,81 +231,55 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.1;
         ctx.beginPath();
-
         if (stemUp) {
-          const bottomNoteY = middleLineY - botPos * (STAFF_SPACING / 2);
-          ctx.moveTo(x + 5.5, bottomNoteY);
-          ctx.lineTo(x + 5.5, bottomNoteY - 30);
-          if (flag) {
-            ctx.moveTo(x + 5.5, bottomNoteY - 30);
-            ctx.quadraticCurveTo(x + 13, bottomNoteY - 22, x + 9, bottomNoteY - 15);
-          }
+          const ny = midY - botPos * (SP / 2);
+          ctx.moveTo(x + 5.5, ny); ctx.lineTo(x + 5.5, ny - 30);
+          if (flag) { ctx.moveTo(x + 5.5, ny - 30); ctx.quadraticCurveTo(x + 13, ny - 22, x + 9, ny - 15); }
         } else {
-          const topNoteY = middleLineY - topPos * (STAFF_SPACING / 2);
-          ctx.moveTo(x - 5.5, topNoteY);
-          ctx.lineTo(x - 5.5, topNoteY + 30);
-          if (flag) {
-            ctx.moveTo(x - 5.5, topNoteY + 30);
-            ctx.quadraticCurveTo(x - 13, topNoteY + 22, x - 9, topNoteY + 15);
-          }
+          const ny = midY - topPos * (SP / 2);
+          ctx.moveTo(x - 5.5, ny); ctx.lineTo(x - 5.5, ny + 30);
+          if (flag) { ctx.moveTo(x - 5.5, ny + 30); ctx.quadraticCurveTo(x - 13, ny + 22, x - 9, ny + 15); }
         }
         ctx.stroke();
       }
     }
 
-    // Build a map from original note index to x position
+    // Draw all notes using unified timeline
     const xPositions = {};
-
-    // Draw treble staff and notes
-    drawStaff(trebleStaffTop, "treble");
     let x = LEFT_MARGIN + 35;
-    let currentMeasure = 0;
-    for (let i = 0; i < rightNotes.length; i++) {
-      const note = rightNotes[i];
+    currentMeasure = 0;
 
-      if (note.measure > currentMeasure && currentMeasure > 0) {
+    for (const slot of timeline) {
+      const m = slot.notes[0].measure;
+
+      // Bar line across both staves
+      if (m > currentMeasure && currentMeasure > 0) {
         ctx.strokeStyle = "#bbb";
         ctx.lineWidth = 0.7;
         ctx.beginPath();
-        ctx.moveTo(x - 5, trebleStaffTop);
-        ctx.lineTo(x - 5, trebleStaffTop + 4 * STAFF_SPACING);
+        ctx.moveTo(x - 3, trebleTop);
+        ctx.lineTo(x - 3, trebleBot);
         if (hasBass) {
-          ctx.moveTo(x - 5, bassStaffTop);
-          ctx.lineTo(x - 5, bassStaffTop + 4 * STAFF_SPACING);
+          ctx.moveTo(x - 3, bassTop);
+          ctx.lineTo(x - 3, bassBot);
         }
         ctx.stroke();
-        x += 8;
+        x += 12;
       }
-      currentMeasure = note.measure;
+      currentMeasure = m;
 
-      // Find original index in score.notes
-      const origIndex = notes.indexOf(note);
-      const isActive = origIndex === activeNoteIndex;
-      xPositions[origIndex] = x;
-
-      drawNote(note, x, trebleStaffTop, "right", isActive);
-      x += getDurationWidth(note.duration) + NOTE_GAP;
-    }
-
-    // Draw bass staff and notes
-    if (hasBass) {
-      drawStaff(bassStaffTop, "bass");
-      x = LEFT_MARGIN + 35;
-      currentMeasure = 0;
-      for (let i = 0; i < leftNotes.length; i++) {
-        const note = leftNotes[i];
-        if (note.measure > currentMeasure && currentMeasure > 0) {
-          x += 8;
-        }
-        currentMeasure = note.measure;
-
+      // Draw each note in this beat slot
+      for (const note of slot.notes) {
         const origIndex = notes.indexOf(note);
         const isActive = origIndex === activeNoteIndex;
         xPositions[origIndex] = x;
 
-        drawNote(note, x, bassStaffTop, "left", isActive);
-        x += getDurationWidth(note.duration) + NOTE_GAP;
+        const hand = note.hand || "right";
+        const staffTop = hand === "left" ? bassTop : trebleTop;
+        drawNote(note, x, staffTop, hand, isActive);
       }
+
+      x += slot.width + GAP;
     }
 
     noteXPositions.current = xPositions;
@@ -321,9 +291,7 @@ export default function SheetMusicView({ score, activeNoteIndex = -1 }) {
     if (activeNoteIndex >= 0 && scrollRef.current && noteXPositions.current[activeNoteIndex]) {
       const x = noteXPositions.current[activeNoteIndex];
       const container = scrollRef.current;
-      const containerWidth = container.clientWidth;
-      // Scroll so the active note is roughly 1/3 from the left
-      const targetScroll = x - containerWidth / 3;
+      const targetScroll = x - container.clientWidth / 3;
       container.scrollTo({ left: targetScroll, behavior: "smooth" });
     }
   }, [activeNoteIndex]);
