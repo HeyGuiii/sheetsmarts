@@ -285,14 +285,17 @@ export default function SnapPage() {
             <p className="text-xs text-gray-400">
               Letters = quarter notes. (2) = half note. (w) = whole note. (8) = eighth note. - = rest. (d) = dotted quarter.
             </p>
-            {(rightHand.trim() || leftHand.trim()) && (
-              <button
-                onClick={handleTypedNotes}
-                className="bg-blue-500 hover:bg-blue-600 text-white rounded-full px-6 py-3 text-lg font-bold active:scale-95 transition-all shadow-lg w-full"
-              >
-                🎵 Play These Notes
-              </button>
-            )}
+            <button
+              onClick={handleTypedNotes}
+              disabled={!rightHand.trim() && !leftHand.trim()}
+              className={`rounded-full px-6 py-3 text-lg font-bold active:scale-95 transition-all shadow-lg w-full ${
+                rightHand.trim() || leftHand.trim()
+                  ? "bg-blue-500 hover:bg-blue-600 text-white"
+                  : "bg-gray-200 text-gray-400"
+              }`}
+            >
+              🎵 Play These Notes
+            </button>
           </div>
 
           {/* Divider */}
