@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "app/api/read-music/route.js": {
+      "maxDuration": 30
+    }
+  }
+}

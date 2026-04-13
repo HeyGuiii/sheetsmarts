@@ -20,12 +20,18 @@ export default function SnapPage() {
     setScore(null);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+
       const res = await fetch("/api/read-music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Image }),
+        signal: controller.signal,
+        keepalive: true,
       });
 
+      clearTimeout(timeoutId);
       const data = await res.json();
 
       if (data.error) {
@@ -34,7 +40,11 @@ export default function SnapPage() {
         setScore(data);
       }
     } catch (err) {
-      setError("Something went wrong. Try taking the photo again.");
+      if (err.name === "AbortError") {
+        setError("It took too long — try a simpler photo with less music on the page.");
+      } else {
+        setError("Lost connection. Make sure you have good signal and try again.");
+      }
     } finally {
       setLoading(false);
     }
