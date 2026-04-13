@@ -62,21 +62,33 @@ export async function POST(request) {
       ],
     });
 
-    // Stream the response chunks back to the client
+    // Stream the response chunks back to the client.
+    // Send a space every 3s as a keepalive to prevent Vercel from
+    // killing the function during Claude's initial image processing.
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        let gotFirstToken = false;
+        const keepalive = setInterval(() => {
+          if (!gotFirstToken) {
+            controller.enqueue(encoder.encode(" "));
+          }
+        }, 3000);
+
         try {
           for await (const event of stream) {
             if (
               event.type === "content_block_delta" &&
               event.delta?.type === "text_delta"
             ) {
+              gotFirstToken = true;
               controller.enqueue(encoder.encode(event.delta.text));
             }
           }
+          clearInterval(keepalive);
           controller.close();
         } catch (err) {
+          clearInterval(keepalive);
           controller.enqueue(
             encoder.encode(JSON.stringify({ error: err?.message || "Stream error" }))
           );
