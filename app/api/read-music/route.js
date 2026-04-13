@@ -8,6 +8,16 @@ const PROMPT = `You are an expert sheet music reader for a piano practice app. Y
 
 IMPORTANT: Read very carefully. Take your time to identify each note precisely. Getting notes wrong will make the playback sound wrong.
 
+IGNORE THESE — they are NOT part of the music notation:
+- Colored stickers, dots, or highlights on the page (these are practice aids)
+- Finger numbers (small numbers 1-5 near note heads)
+- Instructional text, titles, or descriptions above/below the staff
+- Pencil marks or annotations
+- Dynamic markings (p, f, mf, mp, ff, pp)
+- Pedal markings
+
+ONLY read the actual musical notation: note heads on the staff, accidentals, time signature, key signature, rests, and bar lines.
+
 Return ONLY a JSON object with this exact structure (no markdown, no explanation, no code fences):
 
 {
@@ -65,7 +75,7 @@ export async function POST(request) {
     // Use streaming to avoid Vercel's 10s timeout on Hobby plan.
     // Streaming keeps the connection alive as long as data is flowing.
     const stream = await client.messages.stream({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-20250514",
       max_tokens: 4096,
       messages: [
         {
