@@ -42,6 +42,9 @@ export default function SnapPage() {
   const [justSaved, setJustSaved] = useState(false);
   const [context, setContext] = useState({ book: "", songTitle: "", notes: "" });
   const [sourceMethod, setSourceMethod] = useState(null); // "lookup" or "photo"
+  const [thinking, setThinking] = useState(null);
+  const [showThinking, setShowThinking] = useState(false);
+  const [processedImage, setProcessedImage] = useState(null);
 
   useEffect(() => {
     setSavedSongs(getSavedSongs());
@@ -115,16 +118,18 @@ export default function SnapPage() {
   // Fall back to reading from photo
   const handleCapture = useCallback(async (base64Image) => {
     setCapturedImage(base64Image);
+    setProcessedImage(base64Image); // Will show the B&W processed version
     setLoading(true);
-    setLoadingMessage("Reading the sheet music...");
+    setLoadingMessage("Converting to B&W and reading...");
     setError(null);
     setScore(null);
     setJustSaved(false);
     setSourceMethod(null);
+    setThinking(null);
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 90000);
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       const res = await fetch("/api/read-music", {
         method: "POST",
@@ -144,14 +149,20 @@ export default function SnapPage() {
         const errData = await res.json().catch(() => null);
         setError(errData?.error || `Server error (${res.status})`);
       } else {
-        const data = await parseStreamedResponse(res);
+        // New format: response is JSON with _thinking field
+        const text = await res.text();
+        let cleaned = text.trim();
+        const data = JSON.parse(cleaned);
 
         if (data.error) {
           setError(data.error);
         } else {
-          setScore(data);
+          // Extract thinking and store separately
+          const { _thinking, ...scoreData } = data;
+          if (_thinking) setThinking(_thinking);
+          setScore(scoreData);
           setSourceMethod("photo");
-          await saveSong(data, base64Image);
+          await saveSong(scoreData, base64Image);
           setSavedSongs(getSavedSongs());
           setJustSaved(true);
         }
@@ -339,6 +350,7 @@ export default function SnapPage() {
 
           {capturedImage && (
             <div className="w-full max-w-md">
+              <h3 className="text-sm font-bold text-gray-500 uppercase mb-2 text-center">Original Photo</h3>
               <img
                 src={`data:image/jpeg;base64,${capturedImage}`}
                 alt="Captured sheet music"
@@ -353,6 +365,23 @@ export default function SnapPage() {
             </h3>
             <SheetMusicView score={score} activeNoteIndex={activeNote} />
           </div>
+
+          {/* Claude's thinking — shows note-by-note reasoning */}
+          {thinking && (
+            <div className="w-full max-w-md">
+              <button
+                onClick={() => setShowThinking(!showThinking)}
+                className="text-sm text-blue-500 font-medium mb-2"
+              >
+                {showThinking ? "Hide analysis" : "Show how I read each note"}
+              </button>
+              {showThinking && (
+                <div className="bg-white border border-gray-200 rounded-xl p-4 text-xs text-gray-600 max-h-64 overflow-y-auto whitespace-pre-wrap font-mono">
+                  {thinking}
+                </div>
+              )}
+            </div>
+          )}
 
           <ScoreDisplay score={score} activeNoteIndex={activeNote} />
 

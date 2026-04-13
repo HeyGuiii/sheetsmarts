@@ -2,8 +2,8 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 
-// Resize image to max dimension and compress as JPEG
-function resizeImage(base64, maxDim = 1400) {
+// Resize and convert to high-contrast black & white for cleaner music reading
+function resizeImage(base64, maxDim = 1600) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -18,7 +18,22 @@ function resizeImage(base64, maxDim = 1400) {
       canvas.height = height;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(img, 0, 0, width, height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+
+      // Convert to high-contrast B&W — strips colored stickers, shadows, noise
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        // Grayscale using luminance formula
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        // High contrast threshold — anything darker than ~60% becomes black
+        const bw = gray > 160 ? 255 : 0;
+        data[i] = bw;
+        data[i + 1] = bw;
+        data[i + 2] = bw;
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      const dataUrl = canvas.toDataURL("image/png");
       resolve(dataUrl.split(",")[1]);
     };
     img.src = `data:image/jpeg;base64,${base64}`;

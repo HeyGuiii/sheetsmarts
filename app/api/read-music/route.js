@@ -97,9 +97,12 @@ export async function POST(request) {
       ],
     });
 
-    // Stream only the text output (not the thinking blocks) back to the client.
-    // Send keepalive spaces during thinking phase to prevent Vercel timeout.
+    // Collect both thinking and text output.
+    // Send keepalive spaces during processing to prevent Vercel timeout.
     const encoder = new TextEncoder();
+    let thinkingText = "";
+    let jsonText = "";
+
     const readable = new ReadableStream({
       async start(controller) {
         let gotFirstTextToken = false;
@@ -112,14 +115,34 @@ export async function POST(request) {
         try {
           for await (const event of stream) {
             if (event.type === "content_block_delta") {
-              // Only stream text deltas, skip thinking deltas
-              if (event.delta?.type === "text_delta") {
+              if (event.delta?.type === "thinking_delta") {
+                thinkingText += event.delta.thinking;
+              } else if (event.delta?.type === "text_delta") {
                 gotFirstTextToken = true;
-                controller.enqueue(encoder.encode(event.delta.text));
+                jsonText += event.delta.text;
               }
             }
           }
           clearInterval(keepalive);
+
+          // Return a wrapper with both thinking and the score JSON
+          let scoreData;
+          let cleaned = jsonText.trim();
+          if (cleaned.startsWith("```")) {
+            cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+          }
+          try {
+            scoreData = JSON.parse(cleaned);
+          } catch {
+            scoreData = { error: "Could not parse response" };
+          }
+
+          const result = {
+            ...scoreData,
+            _thinking: thinkingText,
+          };
+
+          controller.enqueue(encoder.encode(JSON.stringify(result)));
           controller.close();
         } catch (err) {
           clearInterval(keepalive);
@@ -133,8 +156,7 @@ export async function POST(request) {
 
     return new Response(readable, {
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
+        "Content-Type": "application/json; charset=utf-8",
       },
     });
   } catch (err) {
