@@ -175,6 +175,8 @@ export default function SnapPage() {
     setScore(null);
     setError(null);
     setCapturedImage(null);
+    setProcessedImage(null);
+    setThinking(null);
     setActiveNote(-1);
     setJustSaved(false);
     setSourceMethod(null);
