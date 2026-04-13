@@ -8,6 +8,20 @@ import PlaybackControls from "../../components/PlaybackControls";
 import SheetMusicView from "../../components/SheetMusicView";
 import { getSavedSongs, saveSong, deleteSong } from "../../lib/songLibrary";
 
+const CONTEXT_STORAGE_KEY = "sheetsmarts-context";
+
+function loadContext() {
+  if (typeof window === "undefined") return { book: "", songTitle: "", notes: "" };
+  try {
+    const raw = localStorage.getItem(CONTEXT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : { book: "", songTitle: "", notes: "" };
+  } catch { return { book: "", songTitle: "", notes: "" }; }
+}
+
+function saveContext(ctx) {
+  try { localStorage.setItem(CONTEXT_STORAGE_KEY, JSON.stringify(ctx)); } catch {}
+}
+
 export default function SnapPage() {
   const [score, setScore] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -16,9 +30,20 @@ export default function SnapPage() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [savedSongs, setSavedSongs] = useState([]);
   const [justSaved, setJustSaved] = useState(false);
+  const [context, setContext] = useState({ book: "", songTitle: "", notes: "" });
+  const [showContext, setShowContext] = useState(false);
 
   useEffect(() => {
     setSavedSongs(getSavedSongs());
+    setContext(loadContext());
+  }, []);
+
+  const updateContext = useCallback((field, value) => {
+    setContext((prev) => {
+      const next = { ...prev, [field]: value };
+      saveContext(next);
+      return next;
+    });
   }, []);
 
   const handleCapture = useCallback(async (base64Image) => {
@@ -30,12 +55,17 @@ export default function SnapPage() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
 
       const res = await fetch("/api/read-music", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64Image }),
+        body: JSON.stringify({
+          image: base64Image,
+          book: context.book,
+          songTitle: context.songTitle,
+          notes: context.notes,
+        }),
         signal: controller.signal,
       });
 
@@ -59,7 +89,6 @@ export default function SnapPage() {
               setError(errObj.error);
             } else {
               setScore(errObj);
-              // Auto-save to library
               await saveSong(errObj, base64Image);
               setSavedSongs(getSavedSongs());
               setJustSaved(true);
@@ -70,7 +99,6 @@ export default function SnapPage() {
         } else {
           const data = JSON.parse(cleaned);
           setScore(data);
-          // Auto-save to library
           await saveSong(data, base64Image);
           setSavedSongs(getSavedSongs());
           setJustSaved(true);
@@ -85,7 +113,7 @@ export default function SnapPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [context]);
 
   const handleReset = useCallback(() => {
     setScore(null);
@@ -122,7 +150,7 @@ export default function SnapPage() {
         <div className="flex flex-col items-center gap-3 py-12">
           <div className="text-5xl animate-bounce-note">🎵</div>
           <p className="text-lg text-gray-500">Reading your music...</p>
-          <p className="text-sm text-gray-400">This takes a few seconds</p>
+          <p className="text-sm text-gray-400">This may take 20-30 seconds</p>
         </div>
       )}
 
@@ -145,6 +173,53 @@ export default function SnapPage() {
           <p className="text-gray-500 text-center">
             Take a photo of your sheet music and hear how it sounds!
           </p>
+
+          {/* Context hints for Claude */}
+          <button
+            onClick={() => setShowContext(!showContext)}
+            className="text-blue-500 text-sm font-medium"
+          >
+            {showContext ? "Hide hints" : "Add hints to help read the music"}
+          </button>
+
+          {showContext && (
+            <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-200 flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Book Name</label>
+                <input
+                  type="text"
+                  value={context.book}
+                  onChange={(e) => updateContext("book", e.target.value)}
+                  placeholder='e.g. "Piano Adventures Level 1"'
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Song Title</label>
+                <input
+                  type="text"
+                  value={context.songTitle}
+                  onChange={(e) => updateContext("songTitle", e.target.value)}
+                  placeholder='e.g. "Ode to Joy"'
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Extra Notes</label>
+                <input
+                  type="text"
+                  value={context.notes}
+                  onChange={(e) => updateContext("notes", e.target.value)}
+                  placeholder='e.g. "page 42, key of G"'
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mt-1"
+                />
+              </div>
+              <p className="text-xs text-gray-400">
+                These help Claude cross-reference the music for better accuracy. Saved for next time.
+              </p>
+            </div>
+          )}
+
           <CameraCapture onCapture={handleCapture} />
 
           {/* Saved songs library */}

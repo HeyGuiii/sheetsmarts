@@ -55,7 +55,7 @@ OUTPUT FORMAT — return ONLY this JSON (no markdown, no explanation, no code fe
 
 export async function POST(request) {
   try {
-    const { image } = await request.json();
+    const { image, book, songTitle, notes } = await request.json();
 
     if (!image) {
       return Response.json({ error: "No image provided" }, { status: 400 });
@@ -64,6 +64,15 @@ export async function POST(request) {
     const mediaType = image.startsWith("/9j/") ? "image/jpeg"
       : image.startsWith("iVBOR") ? "image/png"
       : "image/jpeg";
+
+    // Build context hint for Claude
+    const contextParts = [];
+    if (book) contextParts.push(`This piece is from the book "${book}".`);
+    if (songTitle) contextParts.push(`The song title is "${songTitle}".`);
+    if (notes) contextParts.push(`Additional info: ${notes}`);
+    const contextHint = contextParts.length > 0
+      ? `\n\nCONTEXT FROM THE USER:\n${contextParts.join(" ")}\nIf you recognize this piece, use your knowledge of it to verify your reading is correct. Cross-reference the notes you extract against what you know about this piece.`
+      : "";
 
     // Use extended thinking so Claude can reason through each note carefully.
     // Then stream the final JSON output.
@@ -82,7 +91,7 @@ export async function POST(request) {
               type: "image",
               source: { type: "base64", media_type: mediaType, data: image },
             },
-            { type: "text", text: PROMPT },
+            { type: "text", text: PROMPT + contextHint },
           ],
         },
       ],
